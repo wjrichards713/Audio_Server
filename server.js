@@ -13,7 +13,7 @@ available_ports.forEach((port) => {
     try {
       const data = JSON.parse(msg.toString('utf-8'));
       if (rinfo.address == '127.0.0.1' && port_registrar[port]) {
-        console.log(data);
+        console.log(data.data);
         server.send(msg, port_registrar[port].port, port_registrar[port].address, (err) => {
           if (err) {
             console.error(`Failed to send to ${port_registrar[port].address}:${port_registrar[port].port}`, err);
@@ -37,42 +37,9 @@ available_ports.forEach((port) => {
       } else if(rinfo.address != '127.0.0.1') {
         port_registrar[port] = rinfo;
       }
-      console.log(port_registrar);
     } catch ($e) {}
   });
   server.bind(port, () => {
     console.log(`Server listening on port ${port}`);
   });
 });
-
-
-// serverA.on("message", (msg, rinfo) => {
-//   console.log(`[serverA] Received packet from ${rinfo.address}:${rinfo.port}`);
-  
-//   if (originalMsg) {
-//     // Forward to Client A
-//     if (CLIENT_A_IP && CLIENT_A_PORT) {
-//       serverA.send(originalMsg, CLIENT_A_PORT, CLIENT_A_IP, (err) => {
-//         if (err) {
-//           console.error("[serverA] Failed to send to Client A:", err);
-//         } else {
-//           console.log(`[serverA] Forwarded packet to Client A at ${CLIENT_A_IP}:${CLIENT_A_PORT}`);
-//         }
-//       });
-//     } else {
-//       console.log("[serverA] No Client A connected to forward the message.");
-//     }
-//   } else {
-//     // Message is from a client; forward to Server B
-//     CLIENT_A_IP = rinfo.address;
-//     CLIENT_A_PORT = rinfo.port;
-
-//     serverA.send(addMarker(msg), SERVER_PORT_B, "localhost", (err) => {
-//       if (err) {
-//         console.error("[serverA] Failed to send to Server B:", err);
-//       } else {
-//         console.log(`[serverA] Forwarded packet to Server B on port ${SERVER_PORT_B}`);
-//       }
-//     });
-//   }
-// });
