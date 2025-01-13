@@ -1,106 +1,78 @@
 const dgram = require("dgram");
 
-// Server Configuration
-const SERVER_PORT_A = 8000; // Port for server A
-const SERVER_PORT_B = 8001; // Port for server B
-let CLIENT_A_IP = '';
-let CLIENT_A_PORT = '';
-let CLIENT_B_IP = '';
-let CLIENT_B_PORT = '';
+const available_ports = [8000, 8001];
+const port_registrar = {}
+const channel_ports = {
+  '555': [8000, 8001],
+  '666': [8001]
+};
 
-// Create UDP sockets for both servers
-const serverA = dgram.createSocket("udp4");
-const serverB = dgram.createSocket("udp4");
-
-// Helper function to add a marker to the message
-function addMarker(msg) {
-  return Buffer.concat([Buffer.from('SERVER_MARKER:'), msg]);
-}
-
-// Helper function to check and remove the marker
-function removeMarker(msg) {
-  const marker = 'SERVER_MARKER:';
-  const msgStr = msg.toString();
-  if (msgStr.startsWith(marker)) {
-    return Buffer.from(msgStr.slice(marker.length));
-  }
-  return null; // Return null if no marker is found
-}
-
-// Handle incoming RTP packets on Server A
-serverA.on("message", (msg, rinfo) => {
-  console.log(`[serverA] Received packet from ${rinfo.address}:${rinfo.port}`);
-
-  // Check if the message has a marker (i.e., it came from Server B)
-  const originalMsg = removeMarker(msg);
-  if (originalMsg) {
-    // Forward to Client A
-    if (CLIENT_A_IP && CLIENT_A_PORT) {
-      serverA.send(originalMsg, CLIENT_A_PORT, CLIENT_A_IP, (err) => {
-        if (err) {
-          console.error("[serverA] Failed to send to Client A:", err);
-        } else {
-          console.log(`[serverA] Forwarded packet to Client A at ${CLIENT_A_IP}:${CLIENT_A_PORT}`);
-        }
-      });
-    } else {
-      console.log("[serverA] No Client A connected to forward the message.");
-    }
-  } else {
-    // Message is from a client; forward to Server B
-    CLIENT_A_IP = rinfo.address;
-    CLIENT_A_PORT = rinfo.port;
-
-    serverA.send(addMarker(msg), SERVER_PORT_B, "localhost", (err) => {
-      if (err) {
-        console.error("[serverA] Failed to send to Server B:", err);
-      } else {
-        console.log(`[serverA] Forwarded packet to Server B on port ${SERVER_PORT_B}`);
+available_ports.forEach((port) => {
+  const server = dgram.createSocket("udp4");
+  server.on("message", (msg, rinfo) => {
+    try {
+      const data = JSON.parse(msg.toString('utf-8'));
+      if (rinfo.address == '127.0.0.1' && port_registrar[port]) {
+        console.log(data);
+        server.send(msg, port_registrar[port].port, port_registrar[port].address, (err) => {
+          if (err) {
+            console.error(`Failed to send to ${port_registrar[port].address}:${port_registrar[port].port}`, err);
+          } else {
+            console.log(`Forwarded packet to ${port_registrar[port].address}:${port_registrar[port].port}`);
+          }
+        });
+      } else if (rinfo.address != '127.0.0.1' && data.channel_id) {
+        port_registrar[port] = rinfo;
+        channel_ports[data.channel_id].forEach((p) => {
+          if(p != port) {
+            server.send(msg, p, 'localhost', (err) => {
+              if (err) {
+                console.error(`Failed to send to localhost:${p}`, err);
+              } else {
+                console.log(`Forwarded packet to localhost:${p}`);
+              }
+            });
+          }
+        });
+      } else if(rinfo.address != '127.0.0.1') {
+        port_registrar[port] = rinfo;
       }
-    });
-  }
+      console.log(port_registrar);
+    } catch ($e) {}
+  });
+  server.bind(port, () => {
+    console.log(`Server listening on port ${port}`);
+  });
 });
 
-// Handle incoming RTP packets on Server B
-serverB.on("message", (msg, rinfo) => {
-  console.log(`[serverB] Received packet from ${rinfo.address}:${rinfo.port}`);
 
-  // Check if the message has a marker (i.e., it came from Server A)
-  const originalMsg = removeMarker(msg);
-  if (originalMsg) {
-    // Forward to Client B
-    if (CLIENT_B_IP && CLIENT_B_PORT) {
-      serverB.send(originalMsg, CLIENT_B_PORT, CLIENT_B_IP, (err) => {
-        if (err) {
-          console.error("[serverB] Failed to send to Client B:", err);
-        } else {
-          console.log(`[serverB] Forwarded packet to Client B at ${CLIENT_B_IP}:${CLIENT_B_PORT}`);
-        }
-      });
-    } else {
-      console.log("[serverB] No Client B connected to forward the message.");
-    }
-  } else {
-    // Message is from a client; forward to Server A
-    CLIENT_B_IP = rinfo.address;
-    CLIENT_B_PORT = rinfo.port;
+// serverA.on("message", (msg, rinfo) => {
+//   console.log(`[serverA] Received packet from ${rinfo.address}:${rinfo.port}`);
+  
+//   if (originalMsg) {
+//     // Forward to Client A
+//     if (CLIENT_A_IP && CLIENT_A_PORT) {
+//       serverA.send(originalMsg, CLIENT_A_PORT, CLIENT_A_IP, (err) => {
+//         if (err) {
+//           console.error("[serverA] Failed to send to Client A:", err);
+//         } else {
+//           console.log(`[serverA] Forwarded packet to Client A at ${CLIENT_A_IP}:${CLIENT_A_PORT}`);
+//         }
+//       });
+//     } else {
+//       console.log("[serverA] No Client A connected to forward the message.");
+//     }
+//   } else {
+//     // Message is from a client; forward to Server B
+//     CLIENT_A_IP = rinfo.address;
+//     CLIENT_A_PORT = rinfo.port;
 
-    serverB.send(addMarker(msg), SERVER_PORT_A, "localhost", (err) => {
-      if (err) {
-        console.error("[serverB] Failed to send to Server A:", err);
-      } else {
-        console.log(`[serverB] Forwarded packet to Server A on port ${SERVER_PORT_A}`);
-      }
-    });
-  }
-});
-
-// Start Server A
-serverA.bind(SERVER_PORT_A, () => {
-  console.log(`Server A listening on port ${SERVER_PORT_A}`);
-});
-
-// Start Server B
-serverB.bind(SERVER_PORT_B, () => {
-  console.log(`Server B listening on port ${SERVER_PORT_B}`);
-});
+//     serverA.send(addMarker(msg), SERVER_PORT_B, "localhost", (err) => {
+//       if (err) {
+//         console.error("[serverA] Failed to send to Server B:", err);
+//       } else {
+//         console.log(`[serverA] Forwarded packet to Server B on port ${SERVER_PORT_B}`);
+//       }
+//     });
+//   }
+// });
