@@ -5,6 +5,7 @@ const WebSocket = require('ws');
 const crypto = require('crypto'); // For AES decryption
 const OpusScript = require('opusscript');
 const { spawn } = require('child_process');
+require('dotenv').config();
 
 if(fs.existsSync(("public/output.pcm"))) {
   fs.unlinkSync("public/output.pcm");
@@ -17,7 +18,7 @@ const opusDecoder = new OpusScript(48000, 1);
 const app = express();
 
 // AES key for decryption
-const aesKey = Buffer.from("46dR4QR5KH7JhPyyjh/ZS4ki/3QBVwwOTkkQTdZQkC0=", "base64"); // Replace with actual Base64 key
+const aesKey = Buffer.from(process.env.AES_KEY, "base64"); // Replace with actual Base64 key
 const ivLength = 12; // GCM recommended IV size is 12 bytes
 // Create a WebSocket server on port 8080
 const wss = new WebSocket.Server({ port: 3001 }, () => {
@@ -132,13 +133,13 @@ available_ports.forEach((port) => {
           const decryptedData = decryptAES(base64Decoded, aesKey);
           const pcmBuffer = opusDecoder.decode(decryptedData);
           console.log({base64Decoded , decryptedData, pcmBuffer});
-          fs.appendFileSync("public/output.pcm", pcmBuffer);
-          // Write PCM data directly to FFmpeg
-          if (ffmpeg.stdin.writable) {
-              ffmpeg.stdin.write(pcmBuffer);
-          } else {
-              console.error('FFmpeg stdin is not writable');
-          }
+          // fs.appendFileSync("public/output.pcm", pcmBuffer);
+          // // Write PCM data directly to FFmpeg
+          // if (ffmpeg.stdin.writable) {
+          //     ffmpeg.stdin.write(pcmBuffer);
+          // } else {
+          //     console.error('FFmpeg stdin is not writable');
+          // }
         }
 
         channel_ports[data.channel_id].forEach((p) => {

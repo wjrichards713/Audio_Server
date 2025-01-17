@@ -11,6 +11,7 @@
   "description": "",
   "dependencies": {
     "dgram": "^1.0.1",
+    "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "ffmpeg-static": "^5.2.0",
     "fluent-ffmpeg": "^2.1.3",
