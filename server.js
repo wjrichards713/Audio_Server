@@ -5,6 +5,7 @@ const WebSocket = require('ws');
 const crypto = require('crypto'); // For AES decryption
 const OpusScript = require('opusscript');
 const { spawn } = require('child_process');
+const cors = require("cors")
 require('dotenv').config();
 
 if(fs.existsSync(("public/output.pcm"))) {
@@ -16,6 +17,7 @@ const ffplayRtpPort = 5004; // Port to which ffplay will listen
 // Initialize Opus decoder (48kHz, mono)
 const opusDecoder = new OpusScript(48000, 1);
 const app = express();
+app.use(cors())
 
 // AES key for decryption
 const aesKey = Buffer.from(process.env.AES_KEY, "base64"); // Replace with actual Base64 key
@@ -92,23 +94,23 @@ function decryptAES(encryptedData, key) {
 
 
 // Start ffmpeg process
-const ffmpeg = spawn('ffmpeg', [
-  '-f', 's16le', '-ar', '48000', '-ac', '1', '-i', 'pipe:0', // Input from stdin
-  '-f', 'lavfi', '-i', 'anullsrc=cl=mono:r=48000',           // Silence for gaps
-  '-filter_complex', '[0:a]aresample=async=1:min_hard_comp=0.100:first_pts=0[aud];[aud][1:a]amix=inputs=2:duration=longest',
-  '-c:a', 'aac', '-b:a', '128k',
-  '-f', 'hls', '-hls_time', '2', '-hls_list_size', '10',
-  '-hls_flags', 'append_list',
-  'public/stream.m3u8'
-]);
+// const ffmpeg = spawn('ffmpeg', [
+//   '-f', 's16le', '-ar', '48000', '-ac', '1', '-i', 'pipe:0', // Input from stdin
+//   '-f', 'lavfi', '-i', 'anullsrc=cl=mono:r=48000',           // Silence for gaps
+//   '-filter_complex', '[0:a]aresample=async=1:min_hard_comp=0.100:first_pts=0[aud];[aud][1:a]amix=inputs=2:duration=longest',
+//   '-c:a', 'aac', '-b:a', '128k',
+//   '-f', 'hls', '-hls_time', '2', '-hls_list_size', '10',
+//   '-hls_flags', 'append_list',
+//   'public/stream.m3u8'
+// ]);
 
-ffmpeg.stderr.on('data', (data) => {
-  console.error(`FFmpeg error: ${data}`);
-});
+// ffmpeg.stderr.on('data', (data) => {
+//   console.error(`FFmpeg error: ${data}`);
+// });
 
-ffmpeg.on('close', (code) => {
-  console.log(`FFmpeg process exited with code ${code}`);
-});
+// ffmpeg.on('close', (code) => {
+//   console.log(`FFmpeg process exited with code ${code}`);
+// });
 
 
 available_ports.forEach((port) => {
