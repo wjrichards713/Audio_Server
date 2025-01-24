@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Streaming Client</title>
+</head>
+
+<body>
+    <h1>Audio Streaming Client</h1>
+    <div>
+        <label for="ip">Server IP:</label>
+        <input type="text" id="ip" placeholder="Enter server IP" value="146.190.123.218">
+    </div>
+    <button onclick="connectUdp()">Connect to Channel</button>
+    <button onclick="startAudio()">Start Audio</button>
+    <button onclick="startListening()">Start Listening</button>
+    <div id="status"></div>
+    <script>
+        let audioContext, socket, audioPort, websocketId;
+        const udpSockets = {};
+
+        // Function to fetch a UDP port from the server
+        async function fetchUdpPort() {
+            const response = await fetch('/audio-server-port');
+            const data = await response.json();
+            return data;
+        }
+
+        // Function to connect to a UDP channel
+        async function connectUdp() {
+            const ip = document.getElementById('ip').value;
+            const portResponse = await fetchUdpPort();
+            audioPort = portResponse.udp_port;
+            websocketId = portResponse.websocket_id;
+
+            document.getElementById('status').textContent = `Connected to UDP Port: ${audioPort}`;
+
+            // // Connect to the WebSocket server
+            // const wsUrl = `ws:${ip}:3001/?websocket_id=${websocketId}`;
+            // socket = new WebSocket(wsUrl);
+
+            // socket.onopen = () => {
+            //     console.log('WebSocket connected');
+            //     alert(`Connected to WebSocket on ${ip}:3001`);
+            // };
+
+            // socket.onmessage = (event) => {
+            //     console.log('Message from server:', event.data);
+            // };
+
+            // socket.onerror = (error) => {
+            //     console.error('WebSocket error:', error);
+            // };
+
+            // socket.onclose = () => {
+            //     console.log('WebSocket disconnected');
+            // };
+
+            alert(`Connected to UDP Channel on port ${audioPort}`);
+        }
+
+        // Function to start capturing and sending audio
+        async function startAudio() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert('Audio capturing not supported in this browser.');
+                return;
+            }
+
+            try {
+                audioContext = new AudioContext();
+                const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioContext.createMediaStreamSource(mediaStream);
+
+                const processor = audioContext.createScriptProcessor(4096, 1, 1);
+                processor.onaudioprocess = (audioProcessingEvent) => {
+                    const audioPacket = audioProcessingEvent.inputBuffer.getChannelData(0);
+                    // const int16Buffer = new Int16Array(inputBuffer.length);
+                    // for (let i = 0; i < inputBuffer.length; i++) {
+                    //     int16Buffer[i] = inputBuffer[i] * 0x7fff;
+                    // }
+                    // const audioPacket = int16Buffer.buffer;
+                    window.electronAPI.send({audioPort, audioPacket});
+                    // if (socket && socket.readyState === WebSocket.OPEN) {
+                    //     // Send audio packet to the server
+                    //     socket.send(JSON.stringify({
+                    //         channel_id: '555',
+                    //         data: btoa(String.fromCharCode(...new Uint8Array(audioPacket)))
+                    //     }));
+                    // } else {
+                    //     console.error('WebSocket is not open. Cannot send audio packets.');
+                    // }
+                };
+
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+                alert('Audio capturing started and sending packets');
+            } catch (error) {
+                console.error('Error capturing audio:', error);
+            }
+        }
+
+        // Function to start listening for audio packets
+        // async function startListening() {
+        //     if (!audioPort) {
+        //         alert('Please connect to a UDP channel first.');
+        //         return;
+        //     }
+
+        //     const ip = document.getElementById('ip').value;
+        //     const wsUrl = `ws:${ip}:3001/?websocket_id=${websocketId}`;
+        //     const listeningSocket = new WebSocket(wsUrl);
+
+        //     listeningSocket.onmessage = (event) => {
+        //         const packet = JSON.parse(event.data);
+        //         const audioData = new Uint8Array(atob(packet.data).split('').map(char => char.charCodeAt(0)));
+        //         playReceivedAudio(audioData.buffer);
+        //     };
+
+        //     listeningSocket.onopen = () => {
+        //         console.log('Listening WebSocket connected');
+        //         alert('Listening for audio packets');
+        //     };
+
+        //     listeningSocket.onerror = (error) => {
+        //         console.error('WebSocket error while listening:', error);
+        //     };
+
+        //     listeningSocket.onclose = () => {
+        //         console.log('Listening WebSocket disconnected');
+        //     };
+
+        //     udpSockets[audioPort] = listeningSocket;
+        // }
+
+        // Function to play received audio packets
+        // function playReceivedAudio(data) {
+        //   if (!audioContext) {
+        //     audioContext = new AudioContext();
+        //   }
+
+        //   audioContext.decodeAudioData(data, (decodedData) => {
+        //     const source = audioContext.createBufferSource();
+        //     source.buffer = decodedData;
+        //     source.connect(audioContext.destination);
+        //     source.start(0);
+        //   }, (error) => {
+        //     console.error('Error decoding audio data:', error);
+        //   });
+        // }
+        // function playReceivedAudio(data) {
+        //     if (!audioContext) {
+        //         audioContext = new AudioContext();
+        //     }
+
+        //     // Create an AudioBuffer from PCM data
+        //     const bufferLength = data.byteLength / 2; // Int16 PCM has 2 bytes per sample
+        //     const audioBuffer = audioContext.createBuffer(1, bufferLength, 48000); // 48kHz, mono
+        //     const channelData = audioBuffer.getChannelData(0);
+
+        //     // Convert Int16 PCM data to Float32 for Web Audio API
+        //     const pcmData = new Int16Array(data);
+        //     for (let i = 0; i < bufferLength; i++) {
+        //         channelData[i] = pcmData[i] / 32768; // Normalize to [-1, 1]
+        //     }
+
+        //     const source = audioContext.createBufferSource();
+        //     source.buffer = audioBuffer;
+        //     source.connect(audioContext.destination);
+        //     source.start();
+        // }
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,251 @@
+<!-- 
+
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UDP Audio Streaming Client</title>
+  <script>
+    let audioContext, mediaStream, udpSocket, audioPort, websocketId, aesKey, dataChannel;
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+
+    async function fetchUdpPort() {
+      try {
+        const response = await fetch('http://localhost:3000/audio-server-port');
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        console.error("Error fetching UDP port:", error);
+        alert("Error fetching UDP port.");
+      }
+    }
+
+    async function connectUdp() {
+      const ip = document.getElementById('ip').value;
+      const portResponse = await fetchUdpPort();
+      
+      if (portResponse) {
+        audioPort = portResponse.udp_port;
+        websocketId = portResponse.websocket_id;
+        aesKey = portResponse.aes_key;
+
+        document.getElementById('status').textContent = `Connected to UDP Port: ${audioPort}`;
+        
+        // Create a WebRTC DataChannel for sending audio
+        dataChannel = peerConnection.createDataChannel("audioStream");
+
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            fetch(`http://${ip}:3000/ice-candidate`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ candidate: event.candidate })
+            });
+          }
+        };
+
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+
+        const response = await fetch(`http://${ip}:3000/offer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ offer: peerConnection.localDescription })
+        });
+
+        const answer = await response.json();
+        await peerConnection.setRemoteDescription(answer);
+
+        dataChannel.onopen = () => {
+          console.log('Data channel opened');
+          alert(`Connected to UDP channel on port ${audioPort}`);
+        };
+
+        dataChannel.onmessage = (event) => {
+          console.log('Received:', event.data);
+          playReceivedAudio(event.data);
+        };
+
+        dataChannel.onerror = (error) => {
+          console.error('Data channel error:', error);
+        };
+      } else {
+        alert("Failed to connect to UDP.");
+      }
+    }
+
+    async function startAudio() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert('Audio capturing not supported.');
+    return;
+  }
+
+  try {
+    audioContext = new AudioContext();
+    const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const source = audioContext.createMediaStreamSource(mediaStream);
+
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = (audioProcessingEvent) => {
+      const inputBuffer = audioProcessingEvent.inputBuffer.getChannelData(0);
+      const int16Buffer = new Int16Array(inputBuffer.length);
+      for (let i = 0; i < inputBuffer.length; i++) {
+        int16Buffer[i] = inputBuffer[i] * 0x7fff;  // Convert to 16-bit PCM
+      }
+
+      // Send audio packets via WebSockets to backend (which will forward via UDP)
+      const socket = new WebSocket(`ws://localhost:3001/?websocket_id=${websocketId}`);
+      socket.onopen = () => {
+        socket.send(JSON.stringify({
+          channel_id: '555',
+          data: btoa(String.fromCharCode(...new Uint8Array(int16Buffer.buffer)))
+        }));
+      };
+    };
+
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+
+    alert('Audio capturing started and sending packets over UDP via server');
+  } catch (error) {
+    console.error('Error capturing audio:', error);
+  }
+}
+
+
+    async function startListening() {
+      peerConnection.ondatachannel = (event) => {
+        event.channel.onmessage = (msg) => {
+          const audioData = new Uint8Array(msg.data);
+          playReceivedAudio(audioData.buffer);
+        };
+      };
+
+      alert('Listening for audio packets over UDP');
+    }
+
+    function playReceivedAudio(data) {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+
+      const bufferLength = data.byteLength / 2;
+      const audioBuffer = audioContext.createBuffer(1, bufferLength, 48000);
+      const channelData = audioBuffer.getChannelData(0);
+
+      const pcmData = new Int16Array(data);
+      for (let i = 0; i < bufferLength; i++) {
+        channelData[i] = pcmData[i] / 32768; // Normalize to [-1, 1]
+      }
+
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+      source.start();
+    }
+  </script>
+</head>
+<body>
+  <h1>UDP Audio Streaming Client</h1>
+  <div>
+    <label for="ip">Server IP:</label>
+    <input type="text" id="ip" placeholder="Enter server IP" value="localhost">
+  </div>
+  <button onclick="connectUdp()">Connect to Channel</button>
+  <button onclick="startAudio()">Start Audio</button>
+  <button onclick="startListening()">Start Listening</button>
+  <div id="status"></div>
+</body>
+</html> -->
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UDP Audio Chat</title>
+</head>
+<body>
+    <h1>UDP Audio Chat</h1>
+    <button id="startBtn">Start Audio Transmission</button>
+    <audio id="audioPlayer" controls></audio>
+
+    <script>
+        const dgram = require('dgram');
+        const mic = require('mic');
+
+        const UDP_SERVER_IP = '127.0.0.1';  // Change to your backend server IP if required
+        let UDP_PORT;
+
+        // Fetch available UDP port from backend
+        async function getAvailablePort() {
+            try {
+                const response = await fetch('/audio-server-port');
+                const data = await response.json();
+                UDP_PORT = data.udp_port;
+                console.log(`Using UDP Port: ${UDP_PORT}`);
+                listenForIncomingAudio();
+            } catch (error) {
+                console.error('Error fetching available UDP port:', error);
+            }
+        }
+
+        // Capture microphone audio and send via UDP
+        function startAudioTransmission() {
+            if (!UDP_PORT) {
+                console.error('UDP Port not set. Please try again.');
+                return;
+            }
+
+            const socket = dgram.createSocket('udp4');
+            const micInstance = mic({
+                rate: '48000',
+                channels: '1',
+                debug: false,
+                encoding: 'linear16'
+            });
+
+            const micInputStream = micInstance.getAudioStream();
+            micInputStream.on('data', (data) => {
+                socket.send(data, UDP_PORT, UDP_SERVER_IP, (err) => {
+                    if (err) {
+                        console.error('Error sending audio packet:', err);
+                    } else {
+                        console.log(`Sent audio packet to ${UDP_SERVER_IP}:${UDP_PORT}`);
+                    }
+                });
+            });
+
+            micInstance.start();
+            console.log('Audio transmission started...');
+        }
+
+        // Listen for incoming audio packets and play them
+        function listenForIncomingAudio() {
+            const socket = dgram.createSocket('udp4');
+            socket.bind(UDP_PORT, () => {
+                console.log(`Listening for incoming audio on UDP port ${UDP_PORT}`);
+            });
+
+            socket.on('message', (msg) => {
+                const audioBlob = new Blob([msg], { type: 'audio/wav' });
+                const audioURL = URL.createObjectURL(audioBlob);
+                document.getElementById('audioPlayer').src = audioURL;
+                console.log('Received and playing audio');
+            });
+        }
+
+        // Event listener for start button
+        document.getElementById('startBtn').addEventListener('click', () => {
+            startAudioTransmission();
+        });
+
+        // Get the available port on page load
+        getAvailablePort();
+    </script>
+</body>
+</html>

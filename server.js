@@ -118,6 +118,7 @@ available_ports.forEach((port) => {
   server.on("message", (msg, rinfo) => {
     try {
       const data = JSON.parse(msg.toString('utf-8'));
+      console.log(data);
       if (rinfo.address == '127.0.0.1' && port_registered[port]) {
         server.send(msg, port_registered[port].port, port_registered[port].address, (err) => {
           if (err) {
@@ -134,7 +135,7 @@ available_ports.forEach((port) => {
           const base64Decoded = Buffer.from(data.data, "base64");
           const decryptedData = decryptAES(base64Decoded, aesKey);
           const pcmBuffer = opusDecoder.decode(decryptedData);
-          console.log({base64Decoded , decryptedData, pcmBuffer});
+          // console.log({base64Decoded , decryptedData, pcmBuffer});
           // fs.appendFileSync("public/output.pcm", pcmBuffer);
           // // Write PCM data directly to FFmpeg
           // if (ffmpeg.stdin.writable) {
@@ -167,6 +168,12 @@ available_ports.forEach((port) => {
   });
 });
 app.use(express.static('public'));
+app.use(express.static('client'));
+// // app.use(express.static(path.join(__dirname, 'client')));
+// app.use(express.static(path.join(__dirname, 'client')));
+// app.get('/', (req, res) => {
+//   res.sendFile(path.join(__dirname, 'client', 'client.html'));
+// })
 app.listen(3000, () => {
   console.log(`Express API running on http://localhost:3000`);
 });
