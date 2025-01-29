@@ -30,6 +30,7 @@ const wss = new WebSocket.Server({ port: 3001 }, () => {
 const available_ports = JSON.parse(fs.readFileSync(__dirname + '/available_ports.json', 'utf8'));
 const port_registered = {};
 const sockets_registered = {};
+const users_registered = { '555': [], '666': [] };
 const channel_ports = {
   '555': [8000, 8001, 8002, 8003, 8004],
   '666': []
@@ -42,14 +43,24 @@ wss.on('connection', (socket, req) => {
   sockets_registered[websocketId] = socket;
   // Handle incoming messages from clients
   socket.on('message', (message) => {
-      console.log('Received:', message);
-      // Send a reply to the client
-      socket.send(`Server received: ${message}`);
+    const receivedMessage = message instanceof Buffer ? message.toString('utf-8') : message;
+    try {
+      var msg = JSON.parse(receivedMessage);
+      if(msg.connect) {
+        users_registered[websocketId] = {...msg.connect, port: websocketId}
+      }
+    } catch ($e) {
+
+    }
+    // Send a reply to the client
+    socket.send(`Server received: ${receivedMessage}`);
   });
 
   // Handle client disconnect
   socket.on('close', () => {
       console.log('Client disconnected', req.url);
+      delete sockets_registered[websocketId];
+      delete users_registered[websocketId];
   });
 });
 // API to get available UDP ports for a given channel
@@ -73,7 +84,7 @@ app.get("/audio-server-connected-users", (req, res) => {
   const channel_id = req.query.channel_id;
   res.json({
     "concurrent":1,
-    "users": channel_ports[channel_id]
+    "users": channel_ports[channel_id].map((port) => users_registered[port])
   })
 });
 

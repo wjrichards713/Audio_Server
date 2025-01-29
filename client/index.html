@@ -14,8 +14,8 @@
         <input type="text" id="ip" placeholder="Enter server IP" value="146.190.123.218">
     </div>
     <button onclick="connectUdp()">Connect to Channel</button>
-    <button onclick="startAudio()">Start Audio</button>
-    <button onclick="startListening()">Start Listening</button>
+    <button onclick="startAudio()">Start Sending Audio</button>
+    <!-- <button onclick="startListening()">Start Listening</button> -->
     <div id="status"></div>
     <script>
         let audioContext, socket, audioPort, websocketId;
@@ -58,44 +58,60 @@
             //     console.log('WebSocket disconnected');
             // };
 
-            alert(`Connected to UDP Channel on port ${audioPort}`);
+            // alert(`Connected to UDP Channel on port ${audioPort}`);
         }
 
         // Function to start capturing and sending audio
         async function startAudio() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                alert('Audio capturing not supported in this browser.');
+                // alert('Audio capturing not supported in this browser.');
                 return;
             }
 
             try {
-                audioContext = new AudioContext();
-                const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const source = audioContext.createMediaStreamSource(mediaStream);
 
-                const processor = audioContext.createScriptProcessor(4096, 1, 1);
-                processor.onaudioprocess = (audioProcessingEvent) => {
-                    const audioPacket = audioProcessingEvent.inputBuffer.getChannelData(0);
-                    // const int16Buffer = new Int16Array(inputBuffer.length);
-                    // for (let i = 0; i < inputBuffer.length; i++) {
-                    //     int16Buffer[i] = inputBuffer[i] * 0x7fff;
-                    // }
-                    // const audioPacket = int16Buffer.buffer;
-                    window.electronAPI.send({audioPort, audioPacket});
-                    // if (socket && socket.readyState === WebSocket.OPEN) {
-                    //     // Send audio packet to the server
-                    //     socket.send(JSON.stringify({
-                    //         channel_id: '555',
-                    //         data: btoa(String.fromCharCode(...new Uint8Array(audioPacket)))
-                    //     }));
-                    // } else {
-                    //     console.error('WebSocket is not open. Cannot send audio packets.');
-                    // }
-                };
+                navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                    const audioContext = new AudioContext();
+                    const source = audioContext.createMediaStreamSource(stream);
+                    const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-                source.connect(processor);
-                processor.connect(audioContext.destination);
-                alert('Audio capturing started and sending packets');
+                    processor.onaudioprocess = (event) => {
+                        const audioPacket = event.inputBuffer.getChannelData(0);
+                        window.electronAPI.send({audioPort, audioPacket});
+                    };
+
+                    source.connect(processor);
+                    processor.connect(audioContext.destination);
+                }).catch(err => console.error('Microphone access error:', err));
+
+
+                // audioContext = new AudioContext();
+                // const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // const source = audioContext.createMediaStreamSource(mediaStream);
+
+                // const processor = audioContext.createScriptProcessor(4096, 1, 1);
+                // processor.onaudioprocess = (audioProcessingEvent) => {
+                //     const audioPacket = audioProcessingEvent.inputBuffer.getChannelData(0);
+                //     // const int16Buffer = new Int16Array(inputBuffer.length);
+                //     // for (let i = 0; i < inputBuffer.length; i++) {
+                //     //     int16Buffer[i] = inputBuffer[i] * 0x7fff;
+                //     // }
+                //     // const audioPacket = int16Buffer.buffer;
+                //     window.electronAPI.send({audioPort, audioPacket});
+                //     // if (socket && socket.readyState === WebSocket.OPEN) {
+                //     //     // Send audio packet to the server
+                //     //     socket.send(JSON.stringify({
+                //     //         channel_id: '555',
+                //     //         data: btoa(String.fromCharCode(...new Uint8Array(audioPacket)))
+                //     //     }));
+                //     // } else {
+                //     //     console.error('WebSocket is not open. Cannot send audio packets.');
+                //     // }
+                // };
+
+                // source.connect(processor);
+                // processor.connect(audioContext.destination);
+                // // alert('Audio capturing started and sending packets');
             } catch (error) {
                 console.error('Error capturing audio:', error);
             }
