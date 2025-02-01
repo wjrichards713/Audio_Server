@@ -21,6 +21,9 @@
         let audioContext, socket, audioPort, websocketId;
         const udpSockets = {};
 
+        function generateSilentPacket(size) {
+            return new Float32Array(size).fill(0); // PCM silence is just 0 values
+        }
         // Function to fetch a UDP port from the server
         async function fetchUdpPort() {
             const response = await fetch('/audio-server-port');
@@ -37,6 +40,7 @@
 
             document.getElementById('status').textContent = `Connected to UDP Port: ${audioPort}`;
 
+            window.electronAPI.send({audioPort, audioPacket: generateSilentPacket(4096)});
             // // Connect to the WebSocket server
             // const wsUrl = `ws:${ip}:3001/?websocket_id=${websocketId}`;
             // socket = new WebSocket(wsUrl);
@@ -187,6 +191,34 @@
         //     source.start();
         // }
 
+        const audioContext2 = new (window.AudioContext || window.webkitAudioContext)({
+            sampleRate: 48000,
+        });
+        window.electronAPI.on('play-audio', (pcmArray) => {
+
+            // ✅ Convert back to Int16Array
+            const pcmBuffer = new Int16Array(pcmArray);
+
+            // ✅ Ensure PCM buffer size is valid (avoid noise issues)
+            if (pcmBuffer.length % 1920 !== 0) {
+                console.warn(`PCM buffer size mismatch: ${pcmBuffer.length}, trimming to multiple of 1920`);
+                const newSize = Math.floor(pcmBuffer.length / 1920) * 1920;
+                pcmBuffer = pcmBuffer.slice(0, newSize);
+            }
+
+            // ✅ Convert Int16 PCM to Float32 PCM for Web Audio
+            const audioBuffer = audioContext2.createBuffer(1, pcmBuffer.length, 48000);
+            const channelData = audioBuffer.getChannelData(0);
+
+            for (let i = 0; i < pcmBuffer.length; i++) {
+                channelData[i] = pcmBuffer[i] / 32768.0; // Convert to Float32
+            }
+
+            const source = audioContext2.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext2.destination);
+            source.start();
+        })
     </script>
 </body>
 
