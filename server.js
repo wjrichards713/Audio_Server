@@ -140,21 +140,20 @@ available_ports.forEach((port) => {
       } else if (rinfo.address != '127.0.0.1' && data.channel_id) {
         port_registered[port] = rinfo;
 
-        if (data && data.data) {
-          // Decode Base64 to binary encrypted Opus
-          const base64Decoded = Buffer.from(data.data, "base64");
-          const decryptedData = decryptAES(base64Decoded, aesKey);
-          const pcmBuffer = opusDecoder.decode(decryptedData);
-          // console.log({base64Decoded , decryptedData, pcmBuffer});
-          console.log(pcmBuffer);
-          // fs.appendFileSync("public/output.pcm", pcmBuffer);
-          // // Write PCM data directly to FFmpeg
-          // if (ffmpeg.stdin.writable) {
-          //     ffmpeg.stdin.write(pcmBuffer);
-          // } else {
-          //     console.error('FFmpeg stdin is not writable');
-          // }
-        }
+        // if (data && data.data) {
+        //   // Decode Base64 to binary encrypted Opus
+        //   const base64Decoded = Buffer.from(data.data, "base64");
+        //   const decryptedData = decryptAES(base64Decoded, aesKey);
+        //   const pcmBuffer = opusDecoder.decode(decryptedData);
+        //   // console.log({base64Decoded , decryptedData, pcmBuffer});
+        //   // fs.appendFileSync("public/output.pcm", pcmBuffer);
+        //   // // Write PCM data directly to FFmpeg
+        //   // if (ffmpeg.stdin.writable) {
+        //   //     ffmpeg.stdin.write(pcmBuffer);
+        //   // } else {
+        //   //     console.error('FFmpeg stdin is not writable');
+        //   // }
+        // }
 
         channel_ports[data.channel_id].forEach((p) => {
           if(p != port) {

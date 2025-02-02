@@ -13,25 +13,24 @@
         <label for="ip">Server IP:</label>
         <input type="text" id="ip" placeholder="Enter server IP" value="146.190.123.218">
     </div>
-    <button onclick="connectUdp()">Connect to Channel</button>
-    <button onclick="startAudio()">Start Sending Audio</button>
-    <!-- <button onclick="startListening()">Start Listening</button> -->
+    <button id="connectBtn" onclick="connectUdp()">Connect to Channel</button>
+    <button id="startBtn" onclick="startAudio()">Start Sending Audio</button>
+    <button id="stopBtn" onclick="stopAudio()" style="display: none;">Stop Sending Audio</button>
     <div id="status"></div>
     <script>
-        let audioContext, socket, audioPort, websocketId;
+        let audioContext, mediaStream, audioPort, websocketId;
         const udpSockets = {};
 
         function generateSilentPacket(size) {
             return new Float32Array(size).fill(0); // PCM silence is just 0 values
         }
-        // Function to fetch a UDP port from the server
+        
         async function fetchUdpPort() {
             const response = await fetch('/audio-server-port');
             const data = await response.json();
             return data;
         }
 
-        // Function to connect to a UDP channel
         async function connectUdp() {
             const ip = document.getElementById('ip').value;
             const portResponse = await fetchUdpPort();
@@ -39,186 +38,51 @@
             websocketId = portResponse.websocket_id;
 
             document.getElementById('status').textContent = `Connected to UDP Port: ${audioPort}`;
-
-            window.electronAPI.send({audioPort, audioPacket: generateSilentPacket(4096)});
-            // // Connect to the WebSocket server
-            // const wsUrl = `ws:${ip}:3001/?websocket_id=${websocketId}`;
-            // socket = new WebSocket(wsUrl);
-
-            // socket.onopen = () => {
-            //     console.log('WebSocket connected');
-            //     alert(`Connected to WebSocket on ${ip}:3001`);
-            // };
-
-            // socket.onmessage = (event) => {
-            //     console.log('Message from server:', event.data);
-            // };
-
-            // socket.onerror = (error) => {
-            //     console.error('WebSocket error:', error);
-            // };
-
-            // socket.onclose = () => {
-            //     console.log('WebSocket disconnected');
-            // };
-
-            // alert(`Connected to UDP Channel on port ${audioPort}`);
+            window.electronAPI.send({ audioPort, audioPacket: generateSilentPacket(4096) });
         }
 
-        // Function to start capturing and sending audio
         async function startAudio() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                // alert('Audio capturing not supported in this browser.');
+                console.error('Audio capturing not supported in this browser.');
                 return;
             }
 
             try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-                navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-                    const audioContext = new AudioContext();
-                    const source = audioContext.createMediaStreamSource(stream);
-                    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+                processor.onaudioprocess = (event) => {
+                    const audioPacket = event.inputBuffer.getChannelData(0);
+                    window.electronAPI.send({ audioPort, audioPacket });
+                };
 
-                    processor.onaudioprocess = (event) => {
-                        const audioPacket = event.inputBuffer.getChannelData(0);
-                        window.electronAPI.send({audioPort, audioPacket});
-                    };
-
-                    source.connect(processor);
-                    processor.connect(audioContext.destination);
-                }).catch(err => console.error('Microphone access error:', err));
-
-
-                // audioContext = new AudioContext();
-                // const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                // const source = audioContext.createMediaStreamSource(mediaStream);
-
-                // const processor = audioContext.createScriptProcessor(4096, 1, 1);
-                // processor.onaudioprocess = (audioProcessingEvent) => {
-                //     const audioPacket = audioProcessingEvent.inputBuffer.getChannelData(0);
-                //     // const int16Buffer = new Int16Array(inputBuffer.length);
-                //     // for (let i = 0; i < inputBuffer.length; i++) {
-                //     //     int16Buffer[i] = inputBuffer[i] * 0x7fff;
-                //     // }
-                //     // const audioPacket = int16Buffer.buffer;
-                //     window.electronAPI.send({audioPort, audioPacket});
-                //     // if (socket && socket.readyState === WebSocket.OPEN) {
-                //     //     // Send audio packet to the server
-                //     //     socket.send(JSON.stringify({
-                //     //         channel_id: '555',
-                //     //         data: btoa(String.fromCharCode(...new Uint8Array(audioPacket)))
-                //     //     }));
-                //     // } else {
-                //     //     console.error('WebSocket is not open. Cannot send audio packets.');
-                //     // }
-                // };
-
-                // source.connect(processor);
-                // processor.connect(audioContext.destination);
-                // // alert('Audio capturing started and sending packets');
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+                console.log('Audio capturing started.');
+                
+                document.getElementById('startBtn').style.display = 'none';
+                document.getElementById('stopBtn').style.display = 'inline-block';
             } catch (error) {
                 console.error('Error capturing audio:', error);
             }
         }
 
-        // Function to start listening for audio packets
-        // async function startListening() {
-        //     if (!audioPort) {
-        //         alert('Please connect to a UDP channel first.');
-        //         return;
-        //     }
-
-        //     const ip = document.getElementById('ip').value;
-        //     const wsUrl = `ws:${ip}:3001/?websocket_id=${websocketId}`;
-        //     const listeningSocket = new WebSocket(wsUrl);
-
-        //     listeningSocket.onmessage = (event) => {
-        //         const packet = JSON.parse(event.data);
-        //         const audioData = new Uint8Array(atob(packet.data).split('').map(char => char.charCodeAt(0)));
-        //         playReceivedAudio(audioData.buffer);
-        //     };
-
-        //     listeningSocket.onopen = () => {
-        //         console.log('Listening WebSocket connected');
-        //         alert('Listening for audio packets');
-        //     };
-
-        //     listeningSocket.onerror = (error) => {
-        //         console.error('WebSocket error while listening:', error);
-        //     };
-
-        //     listeningSocket.onclose = () => {
-        //         console.log('Listening WebSocket disconnected');
-        //     };
-
-        //     udpSockets[audioPort] = listeningSocket;
-        // }
-
-        // Function to play received audio packets
-        // function playReceivedAudio(data) {
-        //   if (!audioContext) {
-        //     audioContext = new AudioContext();
-        //   }
-
-        //   audioContext.decodeAudioData(data, (decodedData) => {
-        //     const source = audioContext.createBufferSource();
-        //     source.buffer = decodedData;
-        //     source.connect(audioContext.destination);
-        //     source.start(0);
-        //   }, (error) => {
-        //     console.error('Error decoding audio data:', error);
-        //   });
-        // }
-        // function playReceivedAudio(data) {
-        //     if (!audioContext) {
-        //         audioContext = new AudioContext();
-        //     }
-
-        //     // Create an AudioBuffer from PCM data
-        //     const bufferLength = data.byteLength / 2; // Int16 PCM has 2 bytes per sample
-        //     const audioBuffer = audioContext.createBuffer(1, bufferLength, 48000); // 48kHz, mono
-        //     const channelData = audioBuffer.getChannelData(0);
-
-        //     // Convert Int16 PCM data to Float32 for Web Audio API
-        //     const pcmData = new Int16Array(data);
-        //     for (let i = 0; i < bufferLength; i++) {
-        //         channelData[i] = pcmData[i] / 32768; // Normalize to [-1, 1]
-        //     }
-
-        //     const source = audioContext.createBufferSource();
-        //     source.buffer = audioBuffer;
-        //     source.connect(audioContext.destination);
-        //     source.start();
-        // }
-
-        const audioContext2 = new (window.AudioContext || window.webkitAudioContext)({
-            sampleRate: 48000,
-        });
-        window.electronAPI.on('play-audio', (pcmArray) => {
-
-            // ✅ Convert back to Int16Array
-            const pcmBuffer = new Int16Array(pcmArray);
-
-            // ✅ Ensure PCM buffer size is valid (avoid noise issues)
-            if (pcmBuffer.length % 1920 !== 0) {
-                console.warn(`PCM buffer size mismatch: ${pcmBuffer.length}, trimming to multiple of 1920`);
-                const newSize = Math.floor(pcmBuffer.length / 1920) * 1920;
-                pcmBuffer = pcmBuffer.slice(0, newSize);
+        function stopAudio() {
+            if (audioContext) {
+                audioContext.close().then(() => console.log('Audio context closed.'));
+                audioContext = null;
             }
-
-            // ✅ Convert Int16 PCM to Float32 PCM for Web Audio
-            const audioBuffer = audioContext2.createBuffer(1, pcmBuffer.length, 48000);
-            const channelData = audioBuffer.getChannelData(0);
-
-            for (let i = 0; i < pcmBuffer.length; i++) {
-                channelData[i] = pcmBuffer[i] / 32768.0; // Convert to Float32
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                console.log('Media stream stopped.');
+                mediaStream = null;
             }
-
-            const source = audioContext2.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(audioContext2.destination);
-            source.start();
-        })
+            
+            document.getElementById('startBtn').style.display = 'inline-block';
+            document.getElementById('stopBtn').style.display = 'none';
+        }
     </script>
 </body>
 
