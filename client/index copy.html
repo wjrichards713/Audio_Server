@@ -10,68 +10,38 @@
 <body>
     <h1>Audio Streaming Client</h1>
     <div>
-        <input type="text" id="wss" placeholder="Enter Websocket URL" value="" style="width: 100%;">
+        <input type="text" id="wss" placeholder="Enter Websocket URL" value="">
         <br/>
-        <button id="connectWsBtn" onclick="connectWebsocket()">Connect Websocket</button>
-        <br/><br/>
         <label for="ip">Server IP:</label>
         <input type="text" id="ip" placeholder="Enter server IP" value="146.190.123.218">
-        <input type="number" id="port" placeholder="Enter server port" value="">
+        <input type="text" id="port" placeholder="Enter server port" value="">
     </div>
     <button id="connectBtn" onclick="connectUdp()">Connect to Channel</button>
     <button id="startBtn" onclick="startAudio()">Start Sending Audio</button>
     <button id="stopBtn" onclick="stopAudio()" style="display: none;">Stop Sending Audio</button>
     <div id="status"></div>
     <script>
-        let ws;
-        let audioContext, mediaStream, audioPort;
+        let audioContext, mediaStream, audioPort, websocketId;
+        const udpSockets = {};
+
+        function generateSilentPacket(size) {
+            return new Float32Array(size).fill(0); // PCM silence is just 0 values
+        }
+        
         async function fetchUdpPort() {
             const response = await fetch('/audio-server-port');
             const data = await response.json();
-            document.getElementById("wss").value = `wss://redenes.olecons.com/ws/?websocket_id=${data.websocket_id}`;
-            document.getElementById("port").value = data.udp_port;
-            console.log(data);
             return data;
         }
-        async function connectWebsocket() {
-            const wsUrl = document.getElementById("wss").value;
-            ws = new WebSocket(wsUrl);
-            var interval;
-            ws.onopen = () => {
-                console.log("WebSocket connection opened:", wsUrl);
-                interval = setInterval(() => {
-                    ws.send("ping");
-                }, 30000);
-            };
-            ws.onmessage = (event) => {
-                console.log("Received WebSocket message:", event.data);
-            };
-            ws.onerror = (error) => {
-                console.error("WebSocket error:", error);
-            };
-            ws.onclose = () => {
-                console.log("WebSocket connection closed");
-                clearInterval(interval);
-            };
-        }
+
         async function connectUdp() {
-            if(!ws) {
-                document.getElementById('status').textContent = `WebSocket Not Connected`;
-            }
-            if(ws.readyState != 1) {
-                alert("WebSocket Connection Closed");
-            }
-            const port = document.getElementById('port').value;
-            audioPort = port;
-            ws.send(JSON.stringify({connect: {
-                channel_id: '555',
-                affiliation_id: '',
-                user_name: '',
-                agency_name: '',
-                time: Date.now()
-            }}));
-            document.getElementById('status').textContent = `Connected to UDP`;
-            window.electronAPI.send({ audioPort, audioPacket: new Float32Array(4096).fill(0) });
+            const ip = document.getElementById('ip').value;
+            const portResponse = await fetchUdpPort();
+            audioPort = portResponse.udp_port;
+            websocketId = portResponse.websocket_id;
+
+            document.getElementById('status').textContent = `Connected to UDP Port: ${audioPort}`;
+            window.electronAPI.send({ audioPort, audioPacket: generateSilentPacket(4096) });
         }
 
         async function startAudio() {
@@ -116,7 +86,6 @@
             document.getElementById('startBtn').style.display = 'inline-block';
             document.getElementById('stopBtn').style.display = 'none';
         }
-        fetchUdpPort();
     </script>
 </body>
 
