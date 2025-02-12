@@ -96,7 +96,7 @@ function createSocket(p = 0) {
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
-        // console.log(rinfo, msg.toString('utf-8'));
+        console.log(rinfo, msg.toString('utf-8'));
         try {
           const packet = JSON.parse(msg.toString('utf-8'));
           if (packet.channel_id && members[packet.channel_id]) {
