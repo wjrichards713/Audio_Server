@@ -15,7 +15,7 @@
         <button id="connectWsBtn" onclick="connectWebsocket()">Connect Websocket</button>
         <br/><br/>
         <label for="ip">Server IP:</label>
-        <input type="text" id="ip" placeholder="Enter server IP" value="146.190.123.218">
+        <input type="text" id="ip" placeholder="Enter server IP" value="35.90.120.85">
         <input type="number" id="port" placeholder="Enter server port" value="">
     </div>
     <button id="connectBtn" onclick="connectUdp()">Connect to Channel</button>
@@ -28,7 +28,7 @@
         async function fetchUdpPort() {
             const response = await fetch('/audio-server-port');
             const data = await response.json();
-            document.getElementById("wss").value = `wss://redenes.olecons.com/ws/?websocket_id=${data.websocket_id}`;
+            document.getElementById("wss").value = `wss://audio.redenes.org/ws/?websocket_id=${data.websocket_id}`;
             document.getElementById("port").value = data.udp_port;
             console.log(data);
             return data;
