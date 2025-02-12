@@ -1,15 +1,23 @@
 const dgram = require("dgram");
 const fs = require('fs');
 const WebSocket = require('ws');
-const crypto = require('crypto'); // For AES decryption
-const OpusScript = require('opusscript');
+const crypto = require('crypto');
+const {OpusEncoder} = require('node-opus');
 const express = require('express');
 const cors = require("cors");
+const wav = require('wav');
 require('dotenv').config();
 
 const udpSockets = {};
 const udpClients = {};
 const members = {};
+const aesKey = Buffer.from('46dR4QR5KH7JhPyyjh/ZS4ki/3QBVwwOTkkQTdZQkC0=', 'base64'); // Use the same key as the server
+const decoder = new OpusEncoder(48000, 1);
+const wavWriter = new wav.FileWriter('output.wav', {
+  channels: 1,        // Mono
+  sampleRate: 48000,  // 48kHz sample rate
+  bitDepth: 16        // 16-bit PCM
+});
 
 const app = express();
 app.use(cors());
@@ -18,6 +26,7 @@ app.get("/audio-server-port", async (req, res) => {
   try {
     const {socket, port} = await createSocket();
     await socket.close();
+    delete udpSockets[port];
     res.json({
       udp_port: port,
       websocket_id: port,
@@ -46,6 +55,9 @@ wss.on('connection', async (socket, req) => {
     await createSocket(websocketId);
   }
 
+  const interval = setInterval(() => {
+    socket.send("ping");
+  }, 30000);
   socket.on('message', (message) => {
     message = message instanceof Buffer ? message.toString('utf-8') : message;
     try {
@@ -66,6 +78,7 @@ wss.on('connection', async (socket, req) => {
   });
   socket.on('close', () => {
     console.log('WebSocket User Disconnected', req.url);
+    clearInterval(interval);
     udpSockets[websocketId] && udpSockets[websocketId].close();
     for(var channel_id in members) {
       members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
@@ -83,12 +96,17 @@ function createSocket(p = 0) {
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
-        console.log(rinfo, msg.toString('utf-8'));
+        // console.log(rinfo, msg.toString('utf-8'));
         try {
           const packet = JSON.parse(msg.toString('utf-8'));
           if (packet.channel_id && members[packet.channel_id]) {
+            // const base64Decoded = Buffer.from(packet.data, "base64");
+            // const decryptedData = decryptAES(base64Decoded, aesKey);
+            // const pcm = decoder.decode(decryptedData, 3840);
+            // wavWriter.write(pcm);
             members[packet.channel_id].forEach((p) => {
               if(p != port && udpSockets[p]) {
+              // if(udpSockets[p]) {
                 udpSockets[p].send(msg, udpClients[p].port, udpClients[p].address, (err) => {
                   if (err) {
                     console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
@@ -108,6 +126,16 @@ function createSocket(p = 0) {
       resolve({socket, port});
     });
   });
+}
+
+function decryptAES(encryptedData, key) {
+  const iv = encryptedData.slice(0, 12); // Extract IV (first 12 bytes)
+  const encryptedPayload = encryptedData.slice(12, -16); // Extract encrypted data (excluding last 16 bytes)
+  const authTag = encryptedData.slice(-16); // Extract last 16 bytes as auth tag
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(authTag); // Set authentication tag
+  const decrypted = Buffer.concat([decipher.update(encryptedPayload), decipher.final()]);
+  return decrypted;
 }
 
 setInterval(() => {

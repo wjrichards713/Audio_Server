@@ -36,22 +36,20 @@
         async function connectWebsocket() {
             const wsUrl = document.getElementById("wss").value;
             ws = new WebSocket(wsUrl);
-            var interval;
             ws.onopen = () => {
                 console.log("WebSocket connection opened:", wsUrl);
-                interval = setInterval(() => {
-                    ws.send("ping");
-                }, 30000);
             };
             ws.onmessage = (event) => {
                 console.log("Received WebSocket message:", event.data);
+                if(event.data == "ping") {
+                    ws.send("pong");
+                }
             };
             ws.onerror = (error) => {
                 console.error("WebSocket error:", error);
             };
             ws.onclose = () => {
                 console.log("WebSocket connection closed");
-                clearInterval(interval);
             };
         }
         async function connectUdp() {
@@ -71,9 +69,8 @@
                 time: Date.now()
             }}));
             document.getElementById('status').textContent = `Connected to UDP`;
-            window.electronAPI.send({ audioPort, audioPacket: new Float32Array(4096).fill(0) });
+            window.electronAPI.send({ audioPort, audioPacket: new Float32Array(1920).fill(0) });
         }
-
         async function startAudio() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 console.error('Audio capturing not supported in this browser.');
@@ -82,21 +79,33 @@
 
             try {
                 mediaStream = await navigator.mediaDevices.getUserMedia({ audio: {
+                    // deviceId: "d7398de6a333b1296b04f2bc1629c2c4df06d567ac90a7a5845b281c783c393c",
                     echoCancellation: true,
                     noiseSuppression: true, // Optional: reduces background noise
                     autoGainControl: true   // Optional: adjusts the microphone input level automatically
                 } });
                 audioContext = new AudioContext();
                 const source = audioContext.createMediaStreamSource(mediaStream);
-                const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-                processor.onaudioprocess = (event) => {
-                    const audioPacket = event.inputBuffer.getChannelData(0);
-                    window.electronAPI.send({ audioPort, audioPacket });
+                // const processor = audioContext.createScriptProcessor(4096, 1, 1);
+                // processor.onaudioprocess = (event) => {
+                //     const audioPacket = event.inputBuffer.getChannelData(0);
+                //     window.electronAPI.send({ audioPort, audioPacket });
+                // };
+                // source.connect(processor);
+                // processor.connect(audioContext.destination);
+
+                await audioContext.audioWorklet.addModule("processor.js");
+                const workletNode = new AudioWorkletNode(audioContext, "audio-processor", {
+                    processorOptions: { frameSize: 4800 }
+                });
+                workletNode.port.onmessage = (event) => {
+                    // console.log(event);
+                    window.electronAPI.send({ audioPort, audioPacket: event.data });
                 };
+                source.connect(workletNode);
+                // workletNode.connect(audioContext.destination);
 
-                source.connect(processor);
-                processor.connect(audioContext.destination);
                 console.log('Audio capturing started.');
                 
                 document.getElementById('startBtn').style.display = 'none';
@@ -105,7 +114,6 @@
                 console.error('Error capturing audio:', error);
             }
         }
-
         function stopAudio() {
             if (audioContext) {
                 audioContext.close().then(() => console.log('Audio context closed.'));
@@ -121,6 +129,80 @@
             document.getElementById('stopBtn').style.display = 'none';
         }
         fetchUdpPort();
+
+        const audioCtx = new AudioContext({ sampleRate: 48000 });
+const audioQueue = [];
+let playing = false;
+let lastTimestamp = 0;
+
+// Opus Decoder
+const audioDecoder = new AudioDecoder({
+    output: (pcmFrame) => {
+        console.log("PCM Frame Received:", pcmFrame);
+
+        const numFrames = pcmFrame.numberOfFrames; // Should be 4800 for 60ms @ 48kHz
+        const numChannels = pcmFrame.numberOfChannels;
+        const sampleRate = pcmFrame.sampleRate;
+        const allocationSize = pcmFrame.allocationSize({ planeIndex: 0 });
+        const pcmData = new Float32Array(allocationSize / 4);
+        const duration = pcmFrame.duration/1000000;
+
+        // Copy PCM Data
+        pcmFrame.copyTo(pcmData, { planeIndex: 0 });
+
+        // Add frame to queue
+        audioQueue.push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
+
+        // Start playback if not already running
+        if (!playing) {
+            playing = true;
+            playBufferedAudio();
+        }
+    },
+    error: (err) => console.error("Decoding error:", err),
+});
+
+// Configure Opus decoder
+audioDecoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
+
+// Function to play buffered PCM frames with 60ms spacing
+function playBufferedAudio() {
+    if (audioQueue.length === 0) {
+        playing = false;
+        return;
+    }
+
+    const { pcmData, numFrames, numChannels, sampleRate, duration } = audioQueue.shift();
+    const buffer = audioCtx.createBuffer(numChannels, numFrames, sampleRate);
+
+    buffer.copyToChannel(pcmData, 0);
+
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioCtx.destination);
+
+    // Ensure frames are played at exactly 60ms intervals
+    const currentTime = audioCtx.currentTime;
+    const playbackTime = Math.max(currentTime, lastTimestamp + duration);
+
+    source.start(playbackTime);
+    lastTimestamp = playbackTime;
+
+    // Schedule next frame after 60ms
+    setTimeout(playBufferedAudio, (duration * 1000)-10);
+}
+
+// Listen for Opus stream and decode
+window.electronAPI.on("stream", (opus) => {
+    audioDecoder.decode(
+        new EncodedAudioChunk({
+            type: "key",
+            timestamp: performance.now() * 1000, // Ensure correct timing
+            duration: 100000, // 100ms in microseconds
+            data: opus,
+        })
+    );
+});
     </script>
 </body>
 
