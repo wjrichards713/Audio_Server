@@ -17,6 +17,7 @@
         <label for="ip">Server Address:</label>
         <input type="text" id="ip" placeholder="Enter server IP" value="audio.redenes.org">
         <input type="number" id="port" placeholder="Enter server port" value="">
+        <input type="text" id="channel" placeholder="Enter Channel" value="555">
     </div>
     <button id="connectBtn" onclick="connectUdp()">Connect to Channel</button>
     <button id="startBtn" onclick="startAudio()">Start Sending Audio</button>
@@ -60,16 +61,20 @@
                 alert("WebSocket Connection Closed");
             }
             const port = document.getElementById('port').value;
+            const channel = document.getElementById('channel').value;
+            if(!channel || !port) {
+                document.getElementById('status').textContent = `Please input Channel Id and port`;
+            }
             audioPort = port;
             ws.send(JSON.stringify({connect: {
-                channel_id: '555',
+                channel_id: channel,
                 affiliation_id: '',
                 user_name: '',
                 agency_name: '',
                 time: Date.now()
             }}));
             document.getElementById('status').textContent = `Connected to UDP`;
-            window.electronAPI.send({ audioPort, audioPacket: new Float32Array(1920).fill(0) });
+            window.electronAPI.send({ channel, audioPort, audioPacket: new Float32Array(1920).fill(0) });
         }
         async function startAudio() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
