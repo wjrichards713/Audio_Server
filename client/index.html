@@ -13,6 +13,7 @@
         <input type="text" id="wss" placeholder="Enter Websocket URL" value="" style="width: 100%;">
         <br/>
         <button id="connectWsBtn" onclick="connectWebsocket()">Connect Websocket</button>
+        <button id="disconnectWsBtn" onclick="disconnectWebsocket()" style="display: none;">Disconnect Websocket</button>
         <br/><br/>
         <label for="ip">Server Address:</label>
         <input type="text" id="ip" placeholder="Enter server IP" value="audio.redenes.org">
@@ -39,6 +40,8 @@
             ws = new WebSocket(wsUrl);
             ws.onopen = () => {
                 console.log("WebSocket connection opened:", wsUrl);
+                document.getElementById('connectWsBtn').style.display = 'none';
+                document.getElementById('disconnectWsBtn').style.display = 'inline-block';
             };
             ws.onmessage = (event) => {
                 console.log("Received WebSocket message:", event.data);
@@ -53,7 +56,36 @@
                 console.log("WebSocket connection closed");
             };
         }
+        async function disconnectWebsocket() {
+            await ws.close();
+            ws = undefined;
+            document.getElementById('connectWsBtn').style.display = 'inline-block';
+            document.getElementById('disconnectWsBtn').style.display = 'none';
+        }
         async function connectUdp() {
+            if(!ws) {
+                document.getElementById('status').textContent = `WebSocket Not Connected`;
+            }
+            if(ws.readyState != 1) {
+                alert("WebSocket Connection Closed");
+            }
+            const port = document.getElementById('port').value;
+            const channel = document.getElementById('channel').value;
+            if(!channel || !port) {
+                document.getElementById('status').textContent = `Please input Channel Id and port`;
+            }
+            audioPort = port;
+            ws.send(JSON.stringify({connect: {
+                channel_id: channel,
+                affiliation_id: '',
+                user_name: '',
+                agency_name: '',
+                time: Date.now()
+            }}));
+            document.getElementById('status').textContent = `Connected to UDP`;
+            window.electronAPI.send({ channel, audioPort, audioPacket: new Float32Array(1920).fill(0) });
+        }
+        async function disconnectUdp() {
             if(!ws) {
                 document.getElementById('status').textContent = `WebSocket Not Connected`;
             }
@@ -83,6 +115,7 @@
             }
 
             try {
+                const channel = document.getElementById('channel').value;
                 mediaStream = await navigator.mediaDevices.getUserMedia({ audio: {
                     // deviceId: "d7398de6a333b1296b04f2bc1629c2c4df06d567ac90a7a5845b281c783c393c",
                     echoCancellation: true,
@@ -106,7 +139,7 @@
                 });
                 workletNode.port.onmessage = (event) => {
                     // console.log(event);
-                    window.electronAPI.send({ audioPort, audioPacket: event.data });
+                    window.electronAPI.send({ channel, audioPort, audioPacket: event.data });
                 };
                 source.connect(workletNode);
                 // workletNode.connect(audioContext.destination);
