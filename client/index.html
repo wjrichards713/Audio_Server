@@ -64,6 +64,10 @@
             };
         }
         async function disconnectWebsocket() {
+            await stopAudio(555);
+            await stopAudio(666);
+            await disconnectUdp(555);
+            await disconnectUdp(666);
             await ws.close();
             ws = undefined;
             document.getElementById('connectWsBtn').style.display = 'inline-block';
