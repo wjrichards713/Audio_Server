@@ -77,8 +77,7 @@
                 alert("WebSocket Connection Closed");
             }
             const port = document.getElementById('port').value;
-            const channel = document.getElementById('channel').value;
-            if(!channel || !port) {
+            if(!port) {
                 document.getElementById('status').textContent = `Please input Channel Id and port`;
             }
             audioPort = port;
@@ -89,7 +88,7 @@
                 agency_name: '',
                 time: Date.now()
             }}));
-            window.electronAPI.send({ channel, audioPort, audioPacket: new Float32Array(1920).fill(0) });
+            window.electronAPI.send({ channel: channel_id, audioPort, audioPacket: new Float32Array(1920).fill(0) });
             document.getElementById('connectBtn'+channel_id).style.display = 'none';
             document.getElementById('disconnectBtn'+channel_id).style.display = 'inline-block';
         }
@@ -110,14 +109,16 @@
             document.getElementById('connectBtn'+channel_id).style.display = 'inline-block';
             document.getElementById('disconnectBtn'+channel_id).style.display = 'none';
         }
-        async function startAudio() {
+        async function startAudio(channel) {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 console.error('Audio capturing not supported in this browser.');
                 return;
             }
+            if (mediaStream) {
+                return alert("Already sending to different channel");
+            }
 
             try {
-                const channel = document.getElementById('channel').value;
                 mediaStream = await navigator.mediaDevices.getUserMedia({ audio: {
                     // deviceId: "d7398de6a333b1296b04f2bc1629c2c4df06d567ac90a7a5845b281c783c393c",
                     echoCancellation: true,
@@ -148,13 +149,13 @@
 
                 console.log('Audio capturing started.');
                 
-                document.getElementById('startBtn').style.display = 'none';
-                document.getElementById('stopBtn').style.display = 'inline-block';
+                document.getElementById('startBtn'+channel).style.display = 'none';
+                document.getElementById('stopBtn'+channel).style.display = 'inline-block';
             } catch (error) {
                 console.error('Error capturing audio:', error);
             }
         }
-        function stopAudio() {
+        function stopAudio(channel) {
             if (audioContext) {
                 audioContext.close().then(() => console.log('Audio context closed.'));
                 audioContext = null;
@@ -164,9 +165,8 @@
                 console.log('Media stream stopped.');
                 mediaStream = null;
             }
-            
-            document.getElementById('startBtn').style.display = 'inline-block';
-            document.getElementById('stopBtn').style.display = 'none';
+            document.getElementById('startBtn'+channel).style.display = 'inline-block';
+            document.getElementById('stopBtn'+channel).style.display = 'none';
         }
         fetchUdpPort();
 
