@@ -245,7 +245,7 @@
 
         var timeout = null;
         // Listen for Opus stream and decode
-        window.electronAPI.on("stream", ({channel_id, decrypytedData}) => {
+        window.electronAPI.on("stream", ({channel_id, decryptedData}) => {
             clearTimeout(timeout);
             const btn = document.getElementById("connectBtn"+channel_id);
             btn.style.backgroundColor = "chartreuse";
@@ -257,7 +257,7 @@
                     type: "key",
                     timestamp: performance.now() * 1000, // Ensure correct timing
                     duration: 100000, // 100ms in microseconds
-                    data: decrypytedData,
+                    data: decryptedData,
                 })
             );
         });
