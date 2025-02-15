@@ -11,25 +11,26 @@
     <h1>Audio Streaming Client</h1>
     <div>
         <input type="text" id="wss" placeholder="Enter Websocket URL" value="" style="width: 100%;">
-        <br/>
+        <br />
         <button id="connectWsBtn" onclick="connectWebsocket()">Connect Websocket</button>
-        <button id="disconnectWsBtn" onclick="disconnectWebsocket()" style="display: none;">Disconnect Websocket</button>
-        <br/><br/>
+        <button id="disconnectWsBtn" onclick="disconnectWebsocket()" style="display: none;">Disconnect
+            Websocket</button>
+        <br /><br />
         <label for="ip">Server Address:</label>
         <input type="text" id="ip" placeholder="Enter server IP" value="audio.redenes.org">
         <input type="number" id="port" placeholder="Enter server port" value="">
     </div>
-    <br/><br/>
+    <br /><br />
     <button id="connectBtn555" onclick="connectUdp(555)">Connect to 555 Channel</button>
     <button id="disconnectBtn555" onclick="disconnectUdp(555)" style="display: none;">Disconnect to 555 Channel</button>
     <button id="startBtn555" onclick="startAudio(555)">Start Sending Audio</button>
     <button id="stopBtn555" onclick="stopAudio(555)" style="display: none;">Stop Sending Audio</button>
-    <br/><br/>
+    <br /><br />
     <button id="connectBtn666" onclick="connectUdp(666)">Connect to 666 Channel</button>
     <button id="disconnectBtn666" onclick="disconnectUdp(666)" style="display: none;">Disconnect to 666 Channel</button>
     <button id="startBtn666" onclick="startAudio(666)">Start Sending Audio</button>
     <button id="stopBtn666" onclick="stopAudio(666)" style="display: none;">Stop Sending Audio</button>
-    <br/><br/>
+    <br /><br />
     <div id="status"></div>
     <script>
         let ws;
@@ -52,7 +53,7 @@
             };
             ws.onmessage = (event) => {
                 console.log("Received WebSocket message:", event.data);
-                if(event.data == "ping") {
+                if (event.data == "ping") {
                     ws.send("pong");
                 }
             };
@@ -74,44 +75,48 @@
             document.getElementById('disconnectWsBtn').style.display = 'none';
         }
         async function connectUdp(channel_id) {
-            if(!ws) {
+            if (!ws) {
                 document.getElementById('status').textContent = `WebSocket Not Connected`;
             }
-            if(ws.readyState != 1) {
+            if (ws.readyState != 1) {
                 alert("WebSocket Connection Closed");
             }
             const port = document.getElementById('port').value;
-            if(!port) {
+            if (!port) {
                 document.getElementById('status').textContent = `Please input Channel Id and port`;
             }
             audioPort = port;
-            ws.send(JSON.stringify({connect: {
-                channel_id,
-                affiliation_id: '',
-                user_name: '',
-                agency_name: '',
-                time: Date.now()
-            }}));
+            ws.send(JSON.stringify({
+                connect: {
+                    channel_id,
+                    affiliation_id: '',
+                    user_name: '',
+                    agency_name: '',
+                    time: Date.now()
+                }
+            }));
             window.electronAPI.send({ channel: channel_id, audioPort, audioPacket: new Float32Array(1920).fill(0) });
-            document.getElementById('connectBtn'+channel_id).style.display = 'none';
-            document.getElementById('disconnectBtn'+channel_id).style.display = 'inline-block';
+            document.getElementById('connectBtn' + channel_id).style.display = 'none';
+            document.getElementById('disconnectBtn' + channel_id).style.display = 'inline-block';
         }
         async function disconnectUdp(channel_id) {
-            if(!ws) {
+            if (!ws) {
                 document.getElementById('status').textContent = `WebSocket Not Connected`;
             }
-            if(ws.readyState != 1) {
+            if (ws.readyState != 1) {
                 alert("WebSocket Connection Closed");
             }
-            ws.send(JSON.stringify({disconnect: {
-                channel_id,
-                affiliation_id: '',
-                user_name: '',
-                agency_name: '',
-                time: Date.now()
-            }}));
-            document.getElementById('connectBtn'+channel_id).style.display = 'inline-block';
-            document.getElementById('disconnectBtn'+channel_id).style.display = 'none';
+            ws.send(JSON.stringify({
+                disconnect: {
+                    channel_id,
+                    affiliation_id: '',
+                    user_name: '',
+                    agency_name: '',
+                    time: Date.now()
+                }
+            }));
+            document.getElementById('connectBtn' + channel_id).style.display = 'inline-block';
+            document.getElementById('disconnectBtn' + channel_id).style.display = 'none';
         }
         async function startAudio(channel) {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -123,12 +128,14 @@
             }
 
             try {
-                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: {
-                    // deviceId: "d7398de6a333b1296b04f2bc1629c2c4df06d567ac90a7a5845b281c783c393c",
-                    echoCancellation: true,
-                    noiseSuppression: true, // Optional: reduces background noise
-                    autoGainControl: true   // Optional: adjusts the microphone input level automatically
-                } });
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        // deviceId: "d7398de6a333b1296b04f2bc1629c2c4df06d567ac90a7a5845b281c783c393c",
+                        echoCancellation: true,
+                        noiseSuppression: true, // Optional: reduces background noise
+                        autoGainControl: true   // Optional: adjusts the microphone input level automatically
+                    }
+                });
                 audioContext = new AudioContext();
                 const source = audioContext.createMediaStreamSource(mediaStream);
 
@@ -152,9 +159,9 @@
                 // workletNode.connect(audioContext.destination);
 
                 console.log('Audio capturing started.');
-                
-                document.getElementById('startBtn'+channel).style.display = 'none';
-                document.getElementById('stopBtn'+channel).style.display = 'inline-block';
+
+                document.getElementById('startBtn' + channel).style.display = 'none';
+                document.getElementById('stopBtn' + channel).style.display = 'inline-block';
             } catch (error) {
                 console.error('Error capturing audio:', error);
             }
@@ -169,84 +176,91 @@
                 console.log('Media stream stopped.');
                 mediaStream = null;
             }
-            document.getElementById('startBtn'+channel).style.display = 'inline-block';
-            document.getElementById('stopBtn'+channel).style.display = 'none';
+            document.getElementById('startBtn' + channel).style.display = 'inline-block';
+            document.getElementById('stopBtn' + channel).style.display = 'none';
         }
         fetchUdpPort();
 
         const audioCtx = new AudioContext({ sampleRate: 48000 });
-const audioQueue = [];
-let playing = false;
-let lastTimestamp = 0;
+        const audioQueue = [];
+        let playing = false;
+        let lastTimestamp = 0;
 
-// Opus Decoder
-const audioDecoder = new AudioDecoder({
-    output: (pcmFrame) => {
-        console.log("PCM Frame Received:", pcmFrame);
+        // Opus Decoder
+        const audioDecoder = new AudioDecoder({
+            output: (pcmFrame) => {
+                console.log("PCM Frame Received:", pcmFrame);
 
-        const numFrames = pcmFrame.numberOfFrames; // Should be 4800 for 60ms @ 48kHz
-        const numChannels = pcmFrame.numberOfChannels;
-        const sampleRate = pcmFrame.sampleRate;
-        const allocationSize = pcmFrame.allocationSize({ planeIndex: 0 });
-        const pcmData = new Float32Array(allocationSize / 4);
-        const duration = pcmFrame.duration/1000000;
+                const numFrames = pcmFrame.numberOfFrames; // Should be 4800 for 60ms @ 48kHz
+                const numChannels = pcmFrame.numberOfChannels;
+                const sampleRate = pcmFrame.sampleRate;
+                const allocationSize = pcmFrame.allocationSize({ planeIndex: 0 });
+                const pcmData = new Float32Array(allocationSize / 4);
+                const duration = pcmFrame.duration / 1000000;
 
-        // Copy PCM Data
-        pcmFrame.copyTo(pcmData, { planeIndex: 0 });
+                // Copy PCM Data
+                pcmFrame.copyTo(pcmData, { planeIndex: 0 });
 
-        // Add frame to queue
-        audioQueue.push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
+                // Add frame to queue
+                audioQueue.push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
 
-        // Start playback if not already running
-        if (!playing) {
-            playing = true;
-            playBufferedAudio();
+                // Start playback if not already running
+                if (!playing) {
+                    playing = true;
+                    playBufferedAudio();
+                }
+            },
+            error: (err) => console.error("Decoding error:", err),
+        });
+
+        // Configure Opus decoder
+        audioDecoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
+
+        // Function to play buffered PCM frames with 60ms spacing
+        function playBufferedAudio() {
+            if (audioQueue.length === 0) {
+                playing = false;
+                return;
+            }
+
+            const { pcmData, numFrames, numChannels, sampleRate, duration } = audioQueue.shift();
+            const buffer = audioCtx.createBuffer(numChannels, numFrames, sampleRate);
+
+            buffer.copyToChannel(pcmData, 0);
+
+            const source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioCtx.destination);
+
+            // Ensure frames are played at exactly 60ms intervals
+            const currentTime = audioCtx.currentTime;
+            const playbackTime = Math.max(currentTime, lastTimestamp + duration);
+
+            source.start(playbackTime);
+            lastTimestamp = playbackTime;
+
+            // Schedule next frame after 60ms
+            setTimeout(playBufferedAudio, (duration * 1000) - 10);
         }
-    },
-    error: (err) => console.error("Decoding error:", err),
-});
 
-// Configure Opus decoder
-audioDecoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
-
-// Function to play buffered PCM frames with 60ms spacing
-function playBufferedAudio() {
-    if (audioQueue.length === 0) {
-        playing = false;
-        return;
-    }
-
-    const { pcmData, numFrames, numChannels, sampleRate, duration } = audioQueue.shift();
-    const buffer = audioCtx.createBuffer(numChannels, numFrames, sampleRate);
-
-    buffer.copyToChannel(pcmData, 0);
-
-    const source = audioCtx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioCtx.destination);
-
-    // Ensure frames are played at exactly 60ms intervals
-    const currentTime = audioCtx.currentTime;
-    const playbackTime = Math.max(currentTime, lastTimestamp + duration);
-
-    source.start(playbackTime);
-    lastTimestamp = playbackTime;
-
-    // Schedule next frame after 60ms
-    setTimeout(playBufferedAudio, (duration * 1000)-10);
-}
-
-// Listen for Opus stream and decode
-window.electronAPI.on("stream", (opus) => {
-    audioDecoder.decode(
-        new EncodedAudioChunk({
-            type: "key",
-            timestamp: performance.now() * 1000, // Ensure correct timing
-            duration: 100000, // 100ms in microseconds
-            data: opus,
-        })
-    );
-});
+        var timeout = null;
+        // Listen for Opus stream and decode
+        window.electronAPI.on("stream", ({channel_id, decrypytedData}) => {
+            clearTimeout(timeout);
+            const btn = document.getElementById("connectBtn"+channel_id);
+            btn.style.backgroundColor = "chartreuse";
+            timeout = setTimeout(() => {
+                btn.style.backgroundColor = "#efefef";
+            }, 500);
+            audioDecoder.decode(
+                new EncodedAudioChunk({
+                    type: "key",
+                    timestamp: performance.now() * 1000, // Ensure correct timing
+                    duration: 100000, // 100ms in microseconds
+                    data: decrypytedData,
+                })
+            );
+        });
     </script>
 </body>
 
