@@ -247,9 +247,8 @@
         // Listen for Opus stream and decode
         window.electronAPI.on("stream", ({channel_id, decryptedData}) => {
             clearTimeout(timeout);
-            const btn = document.getElementById("connectBtn"+channel_id);
+            const btn = document.getElementById("disconnectBtn"+channel_id);
             btn.style.backgroundColor = "green";
-            console.log(btn);
             timeout = setTimeout(() => {
                 btn.style.backgroundColor = "#efefef";
             }, 500);
