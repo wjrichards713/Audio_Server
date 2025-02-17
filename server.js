@@ -11,6 +11,7 @@ require('dotenv').config();
 const udpSockets = {};
 const udpClients = {};
 const members = {};
+const users = {};
 const aesKey = Buffer.from('46dR4QR5KH7JhPyyjh/ZS4ki/3QBVwwOTkkQTdZQkC0=', 'base64'); // Use the same key as the server
 const decoder = new OpusEncoder(48000, 1);
 const wavWriter = new wav.FileWriter('output.wav', {
@@ -56,7 +57,7 @@ wss.on('connection', async (socket, req) => {
   console.log('WebSocket User Connected', req.url);
   const queryParams = new URL(`http://localhost${req.url}`).searchParams;
   const websocketId = queryParams.get('websocket_id');
-
+  socket.websocketId = websocketId;
   try {
     udpSockets[websocketId].address();
   } catch ($e) {
@@ -66,17 +67,34 @@ wss.on('connection', async (socket, req) => {
   const interval = setInterval(() => {
     socket.send("ping");
   }, 30000);
+
   socket.on('message', (message) => {
     message = message instanceof Buffer ? message.toString('utf-8') : message;
     try {
       message = JSON.parse(message);
       if(message.connect) {
+        users[websocketId] = message.connect;
         const {channel_id} = message.connect;
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
       }
       if(message.disconnect) {
+        delete users[websocketId];
         const {channel_id} = message.disconnect;
         members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
+      }
+      for (const key in message) {
+        if (Object.prototype.hasOwnProperty.call(message, key)) {
+          const {channel_id} = message[key];
+          if(channel_id) {
+            members[channel_id].forEach((memberSocketId)=>{
+              wss.clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN && client.websocketId == memberSocketId) {
+                  client.send(JSON.stringify(message));
+                }
+              });
+            })
+          }
+        }
       }
     } catch ($e) {
       if(message == 'ping') {
@@ -91,6 +109,7 @@ wss.on('connection', async (socket, req) => {
     for(var channel_id in members) {
       members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
     }
+    delete users[websocketId];
     delete udpSockets[websocketId];
     delete udpClients[websocketId];
   });
