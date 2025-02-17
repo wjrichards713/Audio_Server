@@ -132,7 +132,7 @@ function createSocket(p = 0) {
             // const pcm = decoder.decode(decryptedData, 3840);
             // wavWriter.write(pcm);
             members[packet.channel_id].forEach((p) => {
-              if(p != port && udpSockets[p]) {
+              if(p != port && udpSockets[p] && udpClients[p]) {
               // if(udpSockets[p]) {
                 udpSockets[p].send(msg, udpClients[p].port, udpClients[p].address, (err) => {
                   if (err) {
