@@ -37,6 +37,14 @@ app.get("/audio-server-port", async (req, res) => {
     res.status(500).json({ error: "Failed to retrieve an available port." });
   }
 });
+app.get("/audio-server-connected-users", async (req, res) => {
+  try {
+    const {channel_id} = req.query;
+    res.json(members[channel_id]);
+  } catch (err) {
+    res.json([]);
+  }
+});
 app.listen(3000, () => {
   console.log(`Express API running on http://localhost:3000`);
 });
