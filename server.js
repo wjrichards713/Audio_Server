@@ -100,10 +100,11 @@ wss.on('connection', async (socket, req) => {
             }
           }
         });
-        // socket.send(JSON.stringify({ users_connected: allConnectedUsers }));
+        socket.send(JSON.stringify({ users_connected: allConnectedUsers }));
         wss.clients.forEach((client) => {
           if (client.readyState === WebSocket.OPEN && client.websocketId != socket.websocketId) {
             client.send(JSON.stringify(message));
+            client.send(JSON.stringify({ users_connected: allConnectedUsers }));
           }
         });
       } else {
