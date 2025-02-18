@@ -78,6 +78,7 @@ wss.on('connection', async (socket, req) => {
             allConnectedUsers.push(users[client.websocketId]);
           }
         });
+        socket.send({ users_connected: allConnectedUsers })
         wss.clients.forEach((client) => {
           if (client.readyState === WebSocket.OPEN) {
             client.send({ users_connected: allConnectedUsers })
