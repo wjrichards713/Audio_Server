@@ -64,10 +64,6 @@ wss.on('connection', async (socket, req) => {
     await createSocket(websocketId);
   }
 
-  const interval = setInterval(() => {
-    socket.send("ping");
-  }, 30000);
-
   socket.on('message', (message) => {
     message = message instanceof Buffer ? message.toString('utf-8') : message;
     try {
