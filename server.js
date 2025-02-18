@@ -73,8 +73,10 @@ wss.on('connection', async (socket, req) => {
         const {channel_id} = message.connect;
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
         const allConnectedUsers = [];
-        members[channel_id].forEach((memberSocketId)=>{
-          allConnectedUsers.push(memberSocketId);
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            allConnectedUsers.push(users[client.websocketId]);
+          }
         });
         socket.send({ users_connected: allConnectedUsers })
       }
