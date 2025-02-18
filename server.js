@@ -72,6 +72,11 @@ wss.on('connection', async (socket, req) => {
         users[websocketId] = message.connect;
         const {channel_id} = message.connect;
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
+        const allConnectedUsers = [];
+        members[channel_id].forEach((memberSocketId)=>{
+          allConnectedUsers.push(memberSocketId);
+        });
+        socket.send({ users_connected: allConnectedUsers })
       }
       if(message.disconnect) {
         delete users[websocketId];
