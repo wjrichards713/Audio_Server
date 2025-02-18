@@ -65,6 +65,7 @@ wss.on('connection', async (socket, req) => {
   }
 
   socket.on('message', (message) => {
+    console.log(message);
     message = message instanceof Buffer ? message.toString('utf-8') : message;
     try {
       message = JSON.parse(message);
