@@ -68,20 +68,24 @@ wss.on('connection', async (socket, req) => {
     message = message instanceof Buffer ? message.toString('utf-8') : message;
     try {
       message = JSON.parse(message);
+      console.log(message);
       if(message.connect) {
         users[websocketId] = message.connect;
         const {channel_id} = message.connect;
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
         const allConnectedUsers = [];
         wss.clients.forEach((client) => {
+          console.log(client, client.readyState);
           if (client.readyState === WebSocket.OPEN) {
             allConnectedUsers.push(users[client.websocketId]);
           }
         });
-        socket.send({ users_connected: allConnectedUsers })
+        socket.send({ users_connected: allConnectedUsers });
+        console.log("Send user_connected to ", socket.websocketId);
         wss.clients.forEach((client) => {
           if (client.readyState === WebSocket.OPEN) {
-            client.send({ users_connected: allConnectedUsers })
+            client.send({ users_connected: allConnectedUsers });
+            console.log("Send user_connected to ", client.websocketId);
           }
         });
       }
@@ -105,14 +109,12 @@ wss.on('connection', async (socket, req) => {
         }
       }
     } catch ($e) {
-      if(message == 'ping') {
-        socket.send("pong");
-      }
+      console.log($e);
     }
   });
   socket.on('close', () => {
     console.log('WebSocket User Disconnected', req.url);
-    clearInterval(interval);
+    // clearInterval(interval);
     udpSockets[websocketId] && udpSockets[websocketId].close();
     for(var channel_id in members) {
       members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
