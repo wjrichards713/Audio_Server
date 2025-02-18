@@ -76,7 +76,6 @@ wss.on('connection', async (socket, req) => {
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
         const allConnectedUsers = [];
         wss.clients.forEach((client) => {
-          console.log(client, client.readyState);
           if (client.readyState === WebSocket.OPEN) {
             if(users[client.websocketId]) {
               allConnectedUsers.push(users[client.websocketId]);
@@ -84,21 +83,17 @@ wss.on('connection', async (socket, req) => {
           }
         });
         socket.send(JSON.stringify({ users_connected: allConnectedUsers }));
-        console.log("Send user_connected to ", socket.websocketId);
         wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
+          if (client.readyState === WebSocket.OPEN && client.websocketId != socket.websocketId) {
             client.send(JSON.stringify({ users_connected: allConnectedUsers }));
-            console.log("Send user_connected to ", client.websocketId);
           }
         });
       }
       if(message.disconnect) {
-        delete users[websocketId];
         const {channel_id} = message.disconnect;
         members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
         const allConnectedUsers = [];
         wss.clients.forEach((client) => {
-          console.log(client, client.readyState);
           if (client.readyState === WebSocket.OPEN) {
             if(users[client.websocketId]) {
               allConnectedUsers.push(users[client.websocketId]);
@@ -106,25 +101,24 @@ wss.on('connection', async (socket, req) => {
           }
         });
         socket.send(JSON.stringify({ users_connected: allConnectedUsers }));
-        console.log("Send user_connected to ", socket.websocketId);
         wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
+          if (client.readyState === WebSocket.OPEN && client.websocketId != socket.websocketId) {
             client.send(JSON.stringify({ users_connected: allConnectedUsers }));
-            console.log("Send user_connected to ", client.websocketId);
           }
         });
-      }
-      for (const key in message) {
-        if (Object.prototype.hasOwnProperty.call(message, key)) {
-          const {channel_id} = message[key];
-          if(channel_id) {
-            members[channel_id].forEach((memberSocketId)=>{
-              wss.clients.forEach((client) => {
-                if (client.readyState === WebSocket.OPEN && client.websocketId == memberSocketId) {
-                  client.send(JSON.stringify(message));
-                }
-              });
-            })
+      } else {
+        for (const key in message) {
+          if (Object.prototype.hasOwnProperty.call(message, key)) {
+            const {channel_id} = message[key];
+            if(channel_id) {
+              members[channel_id].forEach((memberSocketId)=>{
+                wss.clients.forEach((client) => {
+                  if (client.readyState === WebSocket.OPEN && client.websocketId == memberSocketId && client.websocketId != socket.websocketId) {
+                    client.send(JSON.stringify(message));
+                  }
+                });
+              })
+            }
           }
         }
       }
