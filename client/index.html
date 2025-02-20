@@ -97,23 +97,23 @@
             channelDiv.innerHTML = `
                 <div class="flex items-center space-x-4">
                     <span class="text-lg font-medium">Channel ${channelId}</span>
-                    <button id="connectBtn${channelId}" onclick="connectUdp(${channelId})"
+                    <button id="connectBtn${channelId}" onclick="connectUdp('${channelId}')"
                         class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-colors">
                         Connect
                     </button>
-                    <button id="disconnectBtn${channelId}" onclick="disconnectUdp(${channelId})"
+                    <button id="disconnectBtn${channelId}" onclick="disconnectUdp('${channelId}')"
                         class="hidden bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md transition-colors">
                         Disconnect
                     </button>
-                    <button id="startBtn${channelId}" onclick="startAudio(${channelId})"
+                    <button id="startBtn${channelId}" onclick="startAudio('${channelId}')"
                         class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md transition-colors">
                         Start Audio
                     </button>
-                    <button id="stopBtn${channelId}" onclick="stopAudio(${channelId})"
+                    <button id="stopBtn${channelId}" onclick="stopAudio('${channelId}')"
                         class="hidden bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-md transition-colors">
                         Stop Audio
                     </button>
-                    <button onclick="removeChannel(${channelId})"
+                    <button onclick="removeChannel('${channelId}')"
                         class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md transition-colors">
                         Remove
                     </button>
@@ -376,9 +376,9 @@
     window.electronAPI.on("stream", ({channel_id, decryptedData}) => {
         clearTimeout(timeout);
         const btn = document.getElementById("disconnectBtn"+channel_id);
-        btn.style.backgroundColor = "#b9ffd7";
+        btn.parentElement.parentElement.style.backgroundColor = "#b9ffd7";
         timeout = setTimeout(() => {
-            btn.style.backgroundColor = "transparent";
+            btn.parentElement.parentElement.style.backgroundColor = "transparent";
         }, 500);
         audioDecoder.decode(
             new EncodedAudioChunk({
