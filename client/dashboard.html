@@ -77,9 +77,9 @@
                 const connectedUsersDiv = document.getElementById('connectedUsers');
                 connectedUsersDiv.innerHTML = Object.entries(data.users || {}).map(([port, user]) => `
                     <div class="border rounded-lg p-4 bg-gray-50">
-                        <div class="font-semibold text-gray-700">${user.user_name}</div>
+                        <div class="font-semibold text-gray-700">${port}</div>
                         <div class="text-sm text-gray-600">Agency: ${user.agency_name}</div>
-                        <div class="text-sm text-gray-600">Channel: ${user.channel_id}</div>
+                        <div class="text-sm text-gray-600">UserName: ${user.user_name}</div>
                         <div class="text-sm text-gray-600">Affiliation ID: ${user.affiliation_id}</div>
                     </div>
                 `).join('');
