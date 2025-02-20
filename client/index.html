@@ -1,40 +1,87 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Audio Streaming Client</title>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
+<body class="bg-gray-100 min-h-screen p-6">
+    <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-8">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8 text-center">Audio Streaming Client</h1>
+        
+        <!-- Connection Settings -->
+        <div class="space-y-4 mb-8">
+            <div class="space-y-2">
+                <label class="block text-sm font-medium text-gray-700">WebSocket URL</label>
+                <input type="text" id="wss" placeholder="Enter Websocket URL" value="" 
+                    class="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Affiliation ID</label>
+                    <input type="text" id="affiliationId" value="f064c9f1-31e5-47d9-b5f2-d94edc90dc91" 
+                        class="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">User Name</label>
+                    <input type="text" id="userName" value="John Doe" 
+                        class="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Agency Name</label>
+                    <input type="text" id="agencyName" value="REDENES" 
+                        class="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+            </div>
 
-<body>
-    <h1>Audio Streaming Client</h1>
-    <div>
-        <input type="text" id="wss" placeholder="Enter Websocket URL" value="" style="width: 100%;">
-        <br>
-        <input type="text" id="affiliationId" placeholder="Affiliation ID" value="f064c9f1-31e5-47d9-b5f2-d94edc90dc91">
-        <br>
-        <input type="text" id="userName" placeholder="User Name" value="John Doe">
-        <br>
-        <input type="text" id="agencyName" placeholder="Agency Name" value="REDENES">
-        <br>
-        <button id="connectWsBtn" onclick="connectWebsocket()">Connect Websocket</button>
-        <button id="disconnectWsBtn" onclick="disconnectWebsocket()" style="display: none;">Disconnect
-            Websocket</button>
-        <br><br>
-        <label for="ip">Server Address:</label>
-        <input type="text" id="ip" placeholder="Enter server IP" value="audio.redenes.org">
-        <input type="number" id="port" placeholder="Enter server port" value="">
-        <br><br>
-        <div id="channelControls">
-            <input type="number" id="channelId" placeholder="Enter Channel ID">
-            <button onclick="addChannel()">Add Channel</button>
+            <div class="flex space-x-4">
+                <button id="connectWsBtn" onclick="connectWebsocket()" 
+                    class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-md transition-colors">
+                    Connect Websocket
+                </button>
+                <button id="disconnectWsBtn" onclick="disconnectWebsocket()" 
+                    class="bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-md transition-colors hidden">
+                    Disconnect Websocket
+                </button>
+            </div>
         </div>
-        <br>
-        <div id="activeChannels"></div>
+
+        <!-- Server Settings -->
+        <div class="space-y-4 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Server Address</label>
+                    <input type="text" id="ip" value="audio.redenes.org" 
+                        class="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Server Port</label>
+                    <input type="number" id="port" placeholder="Enter server port" 
+                        class="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+            </div>
+        </div>
+
+        <!-- Channel Controls -->
+        <div class="space-y-4">
+            <div class="flex space-x-4">
+                <input type="text" id="channelId" placeholder="Enter Channel ID" 
+                    class="flex-1 px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <button onclick="addChannel()" 
+                    class="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-md transition-colors">
+                    Add Channel
+                </button>
+            </div>
+            
+            <div id="activeChannels" class="space-y-4"></div>
+        </div>
+
+        <!-- Status Display -->
+        <div id="status" class="mt-8 p-4 bg-gray-50 rounded-md text-gray-700"></div>
     </div>
-    <br><br>
-    <div id="status"></div>
+
     <script>
         let ws;
         let audioContext, mediaStream, audioPort;
@@ -46,14 +93,30 @@
             
             const channelDiv = document.createElement('div');
             channelDiv.id = `channel-${channelId}`;
+            channelDiv.className = 'p-4 bg-gray-50 rounded-lg';
             channelDiv.innerHTML = `
-                <div style="margin: 10px 0;">
-                    <span>Channel ${channelId}</span>
-                    <button id="connectBtn${channelId}" onclick="connectUdp(${channelId})">Connect</button>
-                    <button id="disconnectBtn${channelId}" onclick="disconnectUdp(${channelId})" style="display: none;">Disconnect</button>
-                    <button id="startBtn${channelId}" onclick="startAudio(${channelId})">Start Audio</button>
-                    <button id="stopBtn${channelId}" onclick="stopAudio(${channelId})" style="display: none;">Stop Audio</button>
-                    <button onclick="removeChannel(${channelId})">Remove</button>
+                <div class="flex items-center space-x-4">
+                    <span class="text-lg font-medium">Channel ${channelId}</span>
+                    <button id="connectBtn${channelId}" onclick="connectUdp(${channelId})"
+                        class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-colors">
+                        Connect
+                    </button>
+                    <button id="disconnectBtn${channelId}" onclick="disconnectUdp(${channelId})"
+                        class="hidden bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md transition-colors">
+                        Disconnect
+                    </button>
+                    <button id="startBtn${channelId}" onclick="startAudio(${channelId})"
+                        class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md transition-colors">
+                        Start Audio
+                    </button>
+                    <button id="stopBtn${channelId}" onclick="stopAudio(${channelId})"
+                        class="hidden bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-md transition-colors">
+                        Stop Audio
+                    </button>
+                    <button onclick="removeChannel(${channelId})"
+                        class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md transition-colors">
+                        Remove
+                    </button>
                 </div>
             `;
             document.getElementById('activeChannels').appendChild(channelDiv);
@@ -98,14 +161,16 @@
             console.log(data);
             return data;
         }
+
         async function connectWebsocket() {
             const wsUrl = document.getElementById("wss").value;
             ws = new WebSocket(wsUrl);
             ws.onopen = () => {
                 console.log("WebSocket connection opened:", wsUrl);
-                document.getElementById('connectWsBtn').style.display = 'none';
-                document.getElementById('disconnectWsBtn').style.display = 'inline-block';
+                document.getElementById('connectWsBtn').classList.add('hidden');
+                document.getElementById('disconnectWsBtn').classList.remove('hidden');
                 document.getElementById('status').textContent = `WebSocket Connected`;
+                document.getElementById('status').classList.add('text-green-600');
                 activeChannels.forEach(channelId => {
                     sendChannelConnect(channelId);
                 });
@@ -118,45 +183,56 @@
             };
             ws.onerror = (error) => {
                 console.error("WebSocket error:", error);
+                document.getElementById('status').classList.add('text-red-600');
             };
             ws.onclose = async () => {
                 console.log("WebSocket connection closed");
                 document.getElementById('status').textContent = `WebSocket Disconnected`;
+                document.getElementById('status').classList.remove('text-green-600');
+                document.getElementById('status').classList.add('text-red-600');
                 activeChannels.forEach(async channelId => await stopAudio(channelId));
                 activeChannels.forEach(async channelId => await disconnectUdp(channelId));
-                document.getElementById('connectWsBtn').style.display = 'inline-block';
-                document.getElementById('disconnectWsBtn').style.display = 'none';
+                document.getElementById('connectWsBtn').classList.remove('hidden');
+                document.getElementById('disconnectWsBtn').classList.add('hidden');
             };
         }
+
         async function disconnectWebsocket() {
             await ws.close();
             ws = undefined;
         }
+
         async function connectUdp(channel_id) {
             if (!ws) {
                 document.getElementById('status').textContent = `WebSocket Not Connected`;
+                return;
             }
             if (ws.readyState != 1) {
                 alert("WebSocket Connection Closed");
+                return;
             }
             const port = document.getElementById('port').value;
             if (!port) {
                 document.getElementById('status').textContent = `Please input Channel Id and port`;
+                return;
             }
             audioPort = port;
             sendChannelConnect(channel_id);
-            document.getElementById('connectBtn' + channel_id).style.display = 'none';
+            document.getElementById('connectBtn' + channel_id).classList.add('hidden');
             window.electronAPI.send({ channel: channel_id, audioPort, audioPacket: new Float32Array(1920).fill(0) });
-            document.getElementById('disconnectBtn' + channel_id).style.display = 'inline-block';
+            document.getElementById('disconnectBtn' + channel_id).classList.remove('hidden');
         }
+
         async function disconnectUdp(channel_id) {
             if (!ws) {
                 document.getElementById('status').textContent = `WebSocket Not Connected`;
+                return;
             }
-            document.getElementById('connectBtn' + channel_id).style.display = 'inline-block';
-            document.getElementById('disconnectBtn' + channel_id).style.display = 'none';
+            document.getElementById('connectBtn' + channel_id).classList.remove('hidden');
+            document.getElementById('disconnectBtn' + channel_id).classList.add('hidden');
             if (ws.readyState != 1) {
                 alert("WebSocket Connection Closed");
+                return;
             }
             const affiliationId = document.getElementById('affiliationId').value;
             const userName = document.getElementById('userName').value;
@@ -170,10 +246,11 @@
                     agency_name: agencyName,
                     time: Date.now()
                 }
-                    }, null, 2));
-}
+            }));
+        }
+
         async function startAudio(channel) {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 document.getElementById('status').textContent = `Audio capturing not supported in this browser.`;
                 return;
             }
@@ -186,86 +263,74 @@
                 return;
             }
             if (mediaStream) {
-            console.error('Audio capturing not supported in this browser.');
-            return alert("Already sending to different channel");
+                console.error('Audio capturing not supported in this browser.');
+                return alert("Already sending to different channel");
+            }
+
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(mediaStream);
+
+                await audioContext.audioWorklet.addModule("processor.js");
+                const workletNode = new AudioWorkletNode(audioContext, "audio-processor", {
+                    processorOptions: { frameSize: 4800 }
+                });
+                workletNode.port.onmessage = (event) => {
+                    window.electronAPI.send({ channel, audioPort, audioPacket: event.data });
+                };
+                source.connect(workletNode);
+
+                console.log('Audio capturing started.');
+
+                document.getElementById('startBtn' + channel).classList.add('hidden');
+                document.getElementById('stopBtn' + channel).classList.remove('hidden');
+            } catch (error) {
+                console.error('Error capturing audio:', error);
+                document.getElementById('status').textContent = `Error capturing audio: ${error.message}`;
+            }
         }
 
-        try {
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    // deviceId: "d7398de6a333b1296b04f2bc1629c2c4df06d567ac90a7a5845b281c783c393c",
-                    echoCancellation: true,
-                    noiseSuppression: true, // Optional: reduces background noise
-                    autoGainControl: true   // Optional: adjusts the microphone input level automatically
-                }
-            });
-            audioContext = new AudioContext();
-            const source = audioContext.createMediaStreamSource(mediaStream);
-
-            // const processor = audioContext.createScriptProcessor(4096, 1, 1);
-            // processor.onaudioprocess = (event) => {
-            //     const audioPacket = event.inputBuffer.getChannelData(0);
-            //     window.electronAPI.send({ audioPort, audioPacket });
-            // };
-            // source.connect(processor);
-            // processor.connect(audioContext.destination);
-
-            await audioContext.audioWorklet.addModule("processor.js");
-            const workletNode = new AudioWorkletNode(audioContext, "audio-processor", {
-                processorOptions: { frameSize: 4800 }
-            });
-            workletNode.port.onmessage = (event) => {
-                // console.log(event);
-                window.electronAPI.send({ channel, audioPort, audioPacket: event.data });
-            };
-            source.connect(workletNode);
-            // workletNode.connect(audioContext.destination);
-
-            console.log('Audio capturing started.');
-
-            document.getElementById('startBtn' + channel).style.display = 'none';
-            document.getElementById('stopBtn' + channel).style.display = 'inline-block';
-        } catch (error) {
-            console.error('Error capturing audio:', error);
+        function stopAudio(channel) {
+            if (audioContext) {
+                audioContext.close().then(() => console.log('Audio context closed.'));
+                audioContext = null;
+            }
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                console.log('Media stream stopped.');
+                mediaStream = null;
+            }
+            document.getElementById('startBtn' + channel).classList.remove('hidden');
+            document.getElementById('stopBtn' + channel).classList.add('hidden');
         }
-    }
-    function stopAudio(channel) {
-        if (audioContext) {
-            audioContext.close().then(() => console.log('Audio context closed.'));
-            audioContext = null;
-        }
-        if (mediaStream) {
-            mediaStream.getTracks().forEach(track => track.stop());
-            console.log('Media stream stopped.');
-            mediaStream = null;
-        }
-        document.getElementById('startBtn' + channel).style.display = 'inline-block';
-        document.getElementById('stopBtn' + channel).style.display = 'none';
-    }
-    fetchUdpPort();
 
-    const audioCtx = new AudioContext({ sampleRate: 48000 });
-    const audioQueue = [];
-    let playing = false;
-    let lastTimestamp = 0;
+        fetchUdpPort();
 
-    // Opus Decoder
-    const audioDecoder = new AudioDecoder({
-        output: (pcmFrame) => {
-            console.log("PCM Frame Received:", pcmFrame);
+        const audioCtx = new AudioContext({ sampleRate: 48000 });
+        const audioQueue = [];
+        let playing = false;
+        let lastTimestamp = 0;
 
-            const numFrames = pcmFrame.numberOfFrames; // Should be 4800 for 60ms @ 48kHz
-            const numChannels = pcmFrame.numberOfChannels;
-            const sampleRate = pcmFrame.sampleRate;
-            const allocationSize = pcmFrame.allocationSize({ planeIndex: 0 });
-            const pcmData = new Float32Array(allocationSize / 4);
-            const duration = pcmFrame.duration / 1000000;
+        const audioDecoder = new AudioDecoder({
+            output: (pcmFrame) => {
+                console.log("PCM Frame Received:", pcmFrame);
 
-            // Copy PCM Data
-            pcmFrame.copyTo(pcmData, { planeIndex: 0 });
+                const numFrames = pcmFrame.numberOfFrames;
+                const numChannels = pcmFrame.numberOfChannels;
+                const sampleRate = pcmFrame.sampleRate;
+                const allocationSize = pcmFrame.allocationSize({ planeIndex: 0 });
+                const pcmData = new Float32Array(allocationSize / 4);
+                const duration = pcmFrame.duration / 1000000;
 
-            // Add frame to queue
-            audioQueue.push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
+                pcmFrame.copyTo(pcmData, { planeIndex: 0 });
+                audioQueue.push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
 
             // Start playback if not already running
             if (!playing) {
@@ -311,9 +376,9 @@
     window.electronAPI.on("stream", ({channel_id, decryptedData}) => {
         clearTimeout(timeout);
         const btn = document.getElementById("disconnectBtn"+channel_id);
-        btn.style.backgroundColor = "green";
+        btn.style.backgroundColor = "#b9ffd7";
         timeout = setTimeout(() => {
-            btn.style.backgroundColor = "#efefef";
+            btn.style.backgroundColor = "transparent";
         }, 500);
         audioDecoder.decode(
             new EncodedAudioChunk({
