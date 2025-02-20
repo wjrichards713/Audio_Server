@@ -41,7 +41,7 @@ app.get("/audio-server-port", async (req, res) => {
 app.get("/audio-server-connected-users", async (req, res) => {
   try {
     const {channel_id} = req.query;
-    res.json({ udpSockets, members, udpClients });
+    res.json({ udpSockets, members, udpClients, users });
   } catch (err) {
     res.json([]);
   }
@@ -65,7 +65,6 @@ wss.on('connection', async (socket, req) => {
   }
 
   socket.on('message', (message) => {
-    console.log(message);
     message = message instanceof Buffer ? message.toString('utf-8') : message;
     try {
       message = JSON.parse(message);
@@ -74,38 +73,19 @@ wss.on('connection', async (socket, req) => {
         const {channel_id} = message.connect;
         users[websocketId] = {...message.connect, channel_id: null};
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
-        const allConnectedUsers = [];
-        
         wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            if(users[client.websocketId]) {
-              allConnectedUsers.push(users[client.websocketId]);
-            }
+          if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != socket.websocketId) {
+            client.send(JSON.stringify({...message, channel_id}));
           }
         });
-        socket.send(JSON.stringify({ users_connected: allConnectedUsers }));
-        wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN && client.websocketId != socket.websocketId) {
-            client.send(JSON.stringify({ users_connected: allConnectedUsers }));
-          }
-        });
+        socket.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
       }
       if(message.disconnect) {
         const {channel_id} = message.disconnect;
         members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
-        const allConnectedUsers = [];
         wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            if(users[client.websocketId]) {
-              allConnectedUsers.push(users[client.websocketId]);
-            }
-          }
-        });
-        socket.send(JSON.stringify({ users_connected: allConnectedUsers }));
-        wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN && client.websocketId != socket.websocketId) {
+          if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != socket.websocketId) {
             client.send(JSON.stringify(message));
-            client.send(JSON.stringify({ users_connected: allConnectedUsers }));
           }
         });
       } else {
@@ -113,13 +93,12 @@ wss.on('connection', async (socket, req) => {
           if (Object.prototype.hasOwnProperty.call(message, key)) {
             const {channel_id} = message[key];
             if(channel_id) {
-              members[channel_id].forEach((memberSocketId)=>{
-                wss.clients.forEach((client) => {
-                  if (client.readyState === WebSocket.OPEN && client.websocketId == memberSocketId && client.websocketId != socket.websocketId) {
-                    client.send(JSON.stringify(message));
-                  }
-                });
-              })
+              // send message to all member in same channel
+              wss.clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != socket.websocketId) {
+                  client.send(JSON.stringify(message));
+                }
+              });
             }
           }
         }
@@ -128,9 +107,18 @@ wss.on('connection', async (socket, req) => {
       console.log($e);
     }
   });
-  socket.on('close', () => {
+  socket.on('close', async () => {
     console.log('WebSocket User Disconnected', req.url);
-    // clearInterval(interval);
+    const channels = Object.keys(members);
+    const relevantMembers = [];
+    channels.forEach((channel_id) => {
+      relevantMembers.concat(members[channel_id].filter(item => !relevantMembers.includes(item)));
+    });
+    wss.clients.forEach(async (client) => {
+      if (client.readyState === WebSocket.OPEN && client.websocketId != socket.websocketId && relevantMembers.includes(client.websocketId)) {
+        await client.send(JSON.stringify({disconnect: users[websocketId] }));
+      }
+    });
     udpSockets[websocketId] && udpSockets[websocketId].close();
     for(var channel_id in members) {
       members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
