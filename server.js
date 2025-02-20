@@ -41,7 +41,7 @@ app.get("/audio-server-port", async (req, res) => {
 app.get("/audio-server-connected-users", async (req, res) => {
   try {
     const {channel_id} = req.query;
-    res.json(members[channel_id]);
+    res.json({ udpSockets, members, udpClients });
   } catch (err) {
     res.json([]);
   }
@@ -71,17 +71,18 @@ wss.on('connection', async (socket, req) => {
       message = JSON.parse(message);
       console.log(message);
       if(message.connect) {
-        users[websocketId] = message.connect;
         const {channel_id} = message.connect;
+        users[websocketId] = {...message.connect, channel_id: null};
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
         const allConnectedUsers = [];
-        wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            if(users[client.websocketId]) {
-              allConnectedUsers.push(users[client.websocketId]);
-            }
-          }
-        });
+        
+        // wss.clients.forEach((client) => {
+        //   if (client.readyState === WebSocket.OPEN) {
+        //     if(users[client.websocketId]) {
+        //       allConnectedUsers.push(users[client.websocketId]);
+        //     }
+        //   }
+        // });
         socket.send(JSON.stringify({ users_connected: allConnectedUsers }));
         wss.clients.forEach((client) => {
           if (client.readyState === WebSocket.OPEN && client.websocketId != socket.websocketId) {
@@ -191,5 +192,5 @@ function decryptAES(encryptedData, key) {
 }
 
 setInterval(() => {
-  console.log({ udpSockets, members, udpClients });
+  console.log({ udpSockets, members, udpClients, users });
 }, 10000);
