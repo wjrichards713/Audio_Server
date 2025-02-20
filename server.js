@@ -76,13 +76,13 @@ wss.on('connection', async (socket, req) => {
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
         const allConnectedUsers = [];
         
-        // wss.clients.forEach((client) => {
-        //   if (client.readyState === WebSocket.OPEN) {
-        //     if(users[client.websocketId]) {
-        //       allConnectedUsers.push(users[client.websocketId]);
-        //     }
-        //   }
-        // });
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            if(users[client.websocketId]) {
+              allConnectedUsers.push(users[client.websocketId]);
+            }
+          }
+        });
         socket.send(JSON.stringify({ users_connected: allConnectedUsers }));
         wss.clients.forEach((client) => {
           if (client.readyState === WebSocket.OPEN && client.websocketId != socket.websocketId) {
