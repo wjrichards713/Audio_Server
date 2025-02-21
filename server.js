@@ -214,6 +214,6 @@ function decryptAES(encryptedData, key) {
   return decrypted;
 }
 
-setInterval(() => {
-  console.log({ udpSockets, members, udpClients, users });
-}, 10000);
+// setInterval(() => {
+//   console.log({ udpSockets, members, udpClients, users });
+// }, 10000);
