@@ -140,7 +140,7 @@ function createSocket(p = 0) {
         clearTimeout(inactivityTimer);
       }
       inactivityTimer = setTimeout(() => {
-        console.log(`No activity on port ${socket.address().port} for 30s, closing socket...`);
+        console.log(`No activity on port ${p} for 30s, closing socket...`);
         try {
           socket.close();
         } catch ($e) { console.log($e); }
