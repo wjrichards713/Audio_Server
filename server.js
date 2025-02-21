@@ -133,19 +133,17 @@ function createSocket(p = 0) {
   return new Promise((resolve, reject) => {
     const socket = dgram.createSocket("udp4");
     
-    // Keep track of the inactivity timer
     let inactivityTimer;
     
-    // Helper function to reset the inactivity timer
     const resetInactivityTimer = () => {
-      // Clear existing timer if it exists
       if (inactivityTimer) {
         clearTimeout(inactivityTimer);
       }
-      // Set up a new timer for 30s
       inactivityTimer = setTimeout(() => {
         console.log(`No activity on port ${socket.address().port} for 30s, closing socket...`);
-        socket.close();
+        try {
+          socket.close();
+        } catch ($e) { console.log($e); }
       }, 30000);
     };
 
@@ -153,10 +151,8 @@ function createSocket(p = 0) {
       const { port } = socket.address();
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
-      // Start the first inactivity timer as soon as the socket is bound
       resetInactivityTimer();
       socket.on("message", (msg, rinfo) => {
-        // Reset the timer whenever a message arrives
         resetInactivityTimer();
         console.log(rinfo, msg.toString("utf-8"));
         try {
