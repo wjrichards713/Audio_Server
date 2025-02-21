@@ -132,39 +132,74 @@ wss.on('connection', async (socket, req) => {
 function createSocket(p = 0) {
   return new Promise((resolve, reject) => {
     const socket = dgram.createSocket("udp4");
+    
+    // Keep track of the inactivity timer
+    let inactivityTimer;
+    
+    // Helper function to reset the inactivity timer
+    const resetInactivityTimer = () => {
+      // Clear existing timer if it exists
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+      }
+      // Set up a new timer for 30s
+      inactivityTimer = setTimeout(() => {
+        console.log(`No activity on port ${socket.address().port} for 30s, closing socket...`);
+        socket.close();
+      }, 30000);
+    };
+
     socket.bind(p, () => {
-      const {port} = (socket.address());
+      const { port } = socket.address();
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
+      // Start the first inactivity timer as soon as the socket is bound
+      resetInactivityTimer();
       socket.on("message", (msg, rinfo) => {
-        console.log(rinfo, msg.toString('utf-8'));
+        // Reset the timer whenever a message arrives
+        resetInactivityTimer();
+        console.log(rinfo, msg.toString("utf-8"));
         try {
-          const packet = JSON.parse(msg.toString('utf-8'));
+          const packet = JSON.parse(msg.toString("utf-8"));
           if (packet.channel_id && members[packet.channel_id]) {
-            // const base64Decoded = Buffer.from(packet.data, "base64");
-            // const decryptedData = decryptAES(base64Decoded, aesKey);
-            // const pcm = decoder.decode(decryptedData, 3840);
-            // wavWriter.write(pcm);
-            members[packet.channel_id].forEach((p) => {
-              if(p != port && udpSockets[p] && udpClients[p]) {
-              // if(udpSockets[p]) {
-                udpSockets[p].send(msg, udpClients[p].port, udpClients[p].address, (err) => {
-                  if (err) {
-                    console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
-                  } else {
-                    console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
+            members[packet.channel_id].forEach((memberPort) => {
+              if (memberPort !== port && udpSockets[memberPort] && udpClients[memberPort]) {
+                udpSockets[memberPort].send(
+                  msg,
+                  udpClients[memberPort].port,
+                  udpClients[memberPort].address,
+                  (err) => {
+                    if (err) {
+                      console.error(
+                        `Failed to send to ${udpClients[memberPort].address}:${udpClients[memberPort].port}`,
+                        err
+                      );
+                    } else {
+                      console.log(
+                        `Forwarded packet to ${udpClients[memberPort].address}:${udpClients[memberPort].port}`
+                      );
+                    }
                   }
-                });
+                );
               }
             });
           }
           udpClients[port] = rinfo;
-        } catch ($e) {
-          console.error($e);
+        } catch (e) {
+          console.error(e);
+          // Even on error, we still update the last rinfo
           udpClients[port] = rinfo;
         }
       });
-      resolve({socket, port});
+      // Optionally, listen for 'close' event to clean up or log
+      socket.on("close", () => {
+        delete users[port];
+        delete udpSockets[port];
+        delete udpClients[port];
+        console.log(`Socket on port ${port} closed.`);
+      });
+
+      resolve({ socket, port });
     });
   });
 }
