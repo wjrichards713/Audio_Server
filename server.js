@@ -132,19 +132,19 @@ wss.on('connection', async (socket, req) => {
 function createSocket(p = 0) {
   return new Promise((resolve, reject) => {
     const socket = dgram.createSocket("udp4");
-    let timeout = null;
-    function reinitTimeout() {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        try {
-          socket.close();
-        } catch ($e) {
-          console.log($e);
-        }
-      }, 30000);
-    }
     socket.bind(p, () => {
       const {port} = (socket.address());
+      let timeout = null;
+      function reinitTimeout() {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          try {
+            socket.close();
+          } catch ($e) {
+            console.log($e);
+          }
+        }, 30000);
+      }
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
