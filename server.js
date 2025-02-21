@@ -134,6 +134,7 @@ function createSocket(p = 0) {
     const socket = dgram.createSocket("udp4");
     socket.bind(p, () => {
       const {port} = (socket.address());
+      p = port;
       let timeout = null;
       function reinitTimeout() {
         clearTimeout(timeout);
