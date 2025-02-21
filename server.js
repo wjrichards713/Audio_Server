@@ -178,9 +178,9 @@ function createSocket(p = 0) {
         }
       });
       socket.on("close", () => {
-        console.log(`UDP Socket on port ${p} closed`);
-        delete udpSockets[p];
-        delete udpClients[p];
+        console.log(`UDP Socket on port ${port} closed`);
+        delete udpSockets[port];
+        delete udpClients[port];
         clearTimeout(timeout);
       });
       resolve({socket, port});
