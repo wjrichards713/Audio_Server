@@ -124,8 +124,6 @@ wss.on('connection', async (socket, req) => {
       members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
     }
     delete users[websocketId];
-    delete udpSockets[websocketId];
-    delete udpClients[websocketId];
   });
 });
 
@@ -148,6 +146,8 @@ function createSocket(p = 0) {
       }
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
+      socket.setBroadcast(true);
+      socket.setMulticastTTL(1);
       socket.on("message", (msg, rinfo) => {
         console.log(rinfo, msg.toString('utf-8'));
         reinitTimeout();
@@ -173,7 +173,7 @@ function createSocket(p = 0) {
           }
           udpClients[port] = rinfo;
         } catch ($e) {
-          console.error($e);
+          // console.error($e);
           udpClients[port] = rinfo;
         }
       });
