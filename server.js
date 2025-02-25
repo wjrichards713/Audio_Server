@@ -1,24 +1,24 @@
 const dgram = require("dgram");
-const fs = require('fs');
+// const fs = require('fs');
 const WebSocket = require('ws');
 const crypto = require('crypto');
-const {OpusEncoder} = require('node-opus');
+// const {OpusEncoder} = require('node-opus');
 const express = require('express');
 const cors = require("cors");
-const wav = require('wav');
+// const wav = require('wav');
 require('dotenv').config();
 
 const udpSockets = {};
 const udpClients = {};
 const members = {};
 const users = {};
-const aesKey = Buffer.from('46dR4QR5KH7JhPyyjh/ZS4ki/3QBVwwOTkkQTdZQkC0=', 'base64'); // Use the same key as the server
-const decoder = new OpusEncoder(48000, 1);
-const wavWriter = new wav.FileWriter('output.wav', {
-  channels: 1,        // Mono
-  sampleRate: 48000,  // 48kHz sample rate
-  bitDepth: 16        // 16-bit PCM
-});
+// const aesKey = Buffer.from('46dR4QR5KH7JhPyyjh/ZS4ki/3QBVwwOTkkQTdZQkC0=', 'base64'); // Use the same key as the server
+// const decoder = new OpusEncoder(48000, 1);
+// const wavWriter = new wav.FileWriter('output.wav', {
+//   channels: 1,        // Mono
+//   sampleRate: 48000,  // 48kHz sample rate
+//   bitDepth: 16        // 16-bit PCM
+// });
 
 const app = express();
 app.use(cors());
@@ -146,8 +146,6 @@ function createSocket(p = 0) {
       }
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
-      socket.setBroadcast(true);
-      socket.setMulticastTTL(1);
       socket.on("message", (msg, rinfo) => {
         console.log(rinfo, msg.toString('utf-8'));
         reinitTimeout();
@@ -159,8 +157,8 @@ function createSocket(p = 0) {
             // const pcm = decoder.decode(decryptedData, 3840);
             // wavWriter.write(pcm);
             members[packet.channel_id].forEach((p) => {
-              if(p != port && udpSockets[p] && udpClients[p]) {
-              // if(udpSockets[p]) {
+              // if(p != port && udpSockets[p] && udpClients[p]) {
+              if(udpSockets[p]) {
                 udpSockets[p].send(msg, udpClients[p].port, udpClients[p].address, (err) => {
                   if (err) {
                     console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
