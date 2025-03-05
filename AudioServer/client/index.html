@@ -322,13 +322,13 @@
         fetchUdpPort();
 
         const audioCtx = new AudioContext({ sampleRate: 48000 });
-        const audioQueues = {};  // Store separate queues for each channel
-        const playingStates = {};  // Store playing states for each channel
-        const lastTimestamps = {};  // Store timestamps per channel
+        const audioQueue = [];
+        let playing = false;
+        let lastTimestamp = 0;
 
         const audioDecoder = new AudioDecoder({
-            output: (pcmFrame, channelId) => {
-                console.log(`PCM Frame Received for Channel ${channelId}:`, pcmFrame);
+            output: (pcmFrame) => {
+                console.log("PCM Frame Received:", pcmFrame);
 
                 const numFrames = pcmFrame.numberOfFrames;
                 const numChannels = pcmFrame.numberOfChannels;
@@ -338,77 +338,66 @@
                 const duration = pcmFrame.duration / 1000000;
 
                 pcmFrame.copyTo(pcmData, { planeIndex: 0 });
-                if (!audioQueues[channelId]) {
-                    audioQueues[channelId] = [];
-                    playingStates[channelId] = false;
-                    lastTimestamps[channelId] = 0;
-                }
-                audioQueues[channelId].push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
-                // audioQueue.push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
+                audioQueue.push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
 
-                // Start playback if not already running
-                if (!playingStates[channelId]) {
-                    playingStates[channelId] = true;
-                    playBufferedAudio(channelId);
-                }
-            },
-            error: (err) => console.error("Decoding error:", err),
-        });
-
-        // Configure Opus decoder
-        audioDecoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
-
-        // Function to play buffered PCM frames with 60ms spacing
-        function playBufferedAudio(channelId) {
-            if (!audioQueues[channelId] || audioQueues[channelId].length === 0) {
-                playingStates[channelId] = false;
-                return;
+            // Start playback if not already running
+            if (!playing) {
+                playing = true;
+                playBufferedAudio();
             }
+        },
+        error: (err) => console.error("Decoding error:", err),
+    });
 
-            const { pcmData, numFrames, numChannels, sampleRate, duration } = audioQueues[channelId].shift();
-            const buffer = audioCtx.createBuffer(numChannels, numFrames, sampleRate);
+    // Configure Opus decoder
+    audioDecoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
 
-            buffer.copyToChannel(pcmData, 0);
-
-            const source = audioCtx.createBufferSource();
-            source.buffer = buffer;
-            source.connect(audioCtx.destination);
-
-            // Ensure frames are played at exactly 60ms intervals
-            const currentTime = audioCtx.currentTime;
-            const playbackTime = Math.max(currentTime, lastTimestamps[channelId] + duration);
-
-            source.start(playbackTime);
-            lastTimestamps[channelId] = playbackTime;
-
-            // Schedule next frame after 60ms
-            setTimeout(() => playBufferedAudio(channelId), (duration * 1000) - 10);
+    // Function to play buffered PCM frames with 60ms spacing
+    function playBufferedAudio() {
+        if (audioQueue.length === 0) {
+            playing = false;
+            return;
         }
 
-        var timeout = null;
-        // Listen for Opus stream and decode
-        window.electronAPI.on("stream", ({channel_id, decryptedData}) => {
-            clearTimeout(timeout);
-            const btn = document.getElementById("disconnectBtn"+channel_id);
-            btn.parentElement.parentElement.style.backgroundColor = "#b9ffd7";
-            timeout = setTimeout(() => {
-                btn.parentElement.parentElement.style.backgroundColor = "transparent";
-            }, 500);
-            audioDecoder.decode(
-                new EncodedAudioChunk({
-                    type: "key",
-                    timestamp: performance.now() * 1000, // Ensure correct timing
-                    duration: 100000, // 100ms in microseconds
-                    data: decryptedData,
-                })
-            ).then(() => {
-                // Pass the correct channel_id when output is received
-                audioDecoder.output = (pcmFrame) => {
-                    audioDecoder.output(pcmFrame, channel_id);
-                };
-            });
-        });
-    </script>
+        const { pcmData, numFrames, numChannels, sampleRate, duration } = audioQueue.shift();
+        const buffer = audioCtx.createBuffer(numChannels, numFrames, sampleRate);
+
+        buffer.copyToChannel(pcmData, 0);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioCtx.destination);
+
+        // Ensure frames are played at exactly 60ms intervals
+        const currentTime = audioCtx.currentTime;
+        const playbackTime = Math.max(currentTime, lastTimestamp + duration);
+
+        source.start(playbackTime);
+        lastTimestamp = playbackTime;
+
+        // Schedule next frame after 60ms
+        setTimeout(playBufferedAudio, (duration * 1000) - 10);
+    }
+
+    var timeout = null;
+    // Listen for Opus stream and decode
+    window.electronAPI.on("stream", ({channel_id, decryptedData}) => {
+        clearTimeout(timeout);
+        const btn = document.getElementById("disconnectBtn"+channel_id);
+        btn.parentElement.parentElement.style.backgroundColor = "#b9ffd7";
+        timeout = setTimeout(() => {
+            btn.parentElement.parentElement.style.backgroundColor = "transparent";
+        }, 500);
+        audioDecoder.decode(
+            new EncodedAudioChunk({
+                type: "key",
+                timestamp: performance.now() * 1000, // Ensure correct timing
+                duration: 100000, // 100ms in microseconds
+                data: decryptedData,
+            })
+        );
+    });
+</script>
 </body>
 
 </html>

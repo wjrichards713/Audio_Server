@@ -12,14 +12,6 @@ const udpSockets = {};
 const udpClients = {};
 const members = {};
 const users = {};
-// const aesKey = Buffer.from('46dR4QR5KH7JhPyyjh/ZS4ki/3QBVwwOTkkQTdZQkC0=', 'base64'); // Use the same key as the server
-// const decoder = new OpusEncoder(48000, 1);
-// const wavWriter = new wav.FileWriter('output.wav', {
-//   channels: 1,        // Mono
-//   sampleRate: 48000,  // 48kHz sample rate
-//   bitDepth: 16        // 16-bit PCM
-// });
-
 const app = express();
 app.use(cors());
 app.use(express.static('client'));
@@ -112,7 +104,7 @@ wss.on('connection', async (socket, req) => {
     const channels = Object.keys(members);
     const relevantMembers = [];
     channels.forEach((channel_id) => {
-      relevantMembers.concat(members[channel_id].filter(item => !relevantMembers.includes(item)));
+      relevantMembers.concat((members[channel_id] || []).filter(item => !relevantMembers.includes(item)));
     });
     wss.clients.forEach(async (client) => {
       if (client.readyState === WebSocket.OPEN && client.websocketId != socket.websocketId && relevantMembers.includes(client.websocketId)) {
@@ -152,13 +144,9 @@ function createSocket(p = 0) {
         try {
           const packet = JSON.parse(msg.toString('utf-8'));
           if (packet.channel_id && members[packet.channel_id]) {
-            // const base64Decoded = Buffer.from(packet.data, "base64");
-            // const decryptedData = decryptAES(base64Decoded, aesKey);
-            // const pcm = decoder.decode(decryptedData, 3840);
-            // wavWriter.write(pcm);
             members[packet.channel_id].forEach((p) => {
-              // if(p != port && udpSockets[p] && udpClients[p]) {
-              if(udpSockets[p]) {
+              if(p != port && udpSockets[p] && udpClients[p]) {
+              // if(udpSockets[p]) {
                 udpSockets[p].send(msg, udpClients[p].port, udpClients[p].address, (err) => {
                   if (err) {
                     console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
@@ -195,7 +183,3 @@ function decryptAES(encryptedData, key) {
   const decrypted = Buffer.concat([decipher.update(encryptedPayload), decipher.final()]);
   return decrypted;
 }
-
-// setInterval(() => {
-//   console.log({ udpSockets, members, udpClients, users });
-// }, 10000);

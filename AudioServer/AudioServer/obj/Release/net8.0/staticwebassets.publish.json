@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "bRSFw6w9eFRrYfcNz8EQttcZICV4XKVfzJZnGhSh2AM=",
+  "Source": "AudioServer",
+  "BasePath": "_content/AudioServer",
+  "Mode": "Default",
+  "ManifestType": "Publish",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}

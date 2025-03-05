@@ -1,0 +1,41 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "AudioServer/1.0.0": {
+        "dependencies": {
+          "Fleck": "1.1.0"
+        },
+        "runtime": {
+          "AudioServer.dll": {}
+        }
+      },
+      "Fleck/1.1.0": {
+        "runtime": {
+          "lib/netcoreapp2.0/Fleck.dll": {
+            "assemblyVersion": "1.1.0.0",
+            "fileVersion": "1.1.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "AudioServer/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Fleck/1.1.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-X33W1PqRciRmh8Q23klEv3CiRS681IUJj/Ldlgi96lSfq1Uaux3l1qNewRDboiUxnHfoNtcIhFMIhc9AJ4cw6g==",
+      "path": "fleck/1.1.0",
+      "hashPath": "fleck.1.1.0.nupkg.sha512"
+    }
+  }
+}
