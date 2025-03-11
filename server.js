@@ -56,7 +56,7 @@ wss.on('connection', async (socket, req) => {
     await createSocket(websocketId);
   }
 
-  socket.on('message', (message) => {
+  socket.on('message', async (message) => {
     message = message instanceof Buffer ? message.toString('utf-8') : message;
     try {
       message = JSON.parse(message);
@@ -64,20 +64,26 @@ wss.on('connection', async (socket, req) => {
       if(message.connect) {
         const {channel_id} = message.connect;
         users[websocketId] = {...message.connect, channel_id: null};
+        try {
+          udpSockets[websocketId].address();
+        } catch ($e) {
+          await createSocket(websocketId);
+        }
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
         wss.clients.forEach((client) => {
           if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != socket.websocketId) {
-            client.send(JSON.stringify({...message, channel_id}));
+            // client.send(JSON.stringify({...message, channel_id}));
+            client.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
           }
         });
         socket.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
-      }
-      if(message.disconnect) {
+      } else if(message.disconnect) {
         const {channel_id} = message.disconnect;
         members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
         wss.clients.forEach((client) => {
           if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != socket.websocketId) {
-            client.send(JSON.stringify(message));
+            // client.send(JSON.stringify(message));
+            client.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
           }
         });
       } else {
@@ -169,6 +175,7 @@ function createSocket(p = 0) {
         delete udpClients[port];
         clearTimeout(timeout);
       });
+      reinitTimeout();
       resolve({socket, port});
     });
   });

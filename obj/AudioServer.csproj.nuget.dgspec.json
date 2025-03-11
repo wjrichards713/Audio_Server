@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/ubuntu/Audio_Server/AudioServer/AudioServer/AudioServer.csproj": {}
+    "/home/ubuntu/Audio_Server/AudioServer.csproj": {}
   },
   "projects": {
-    "/home/ubuntu/Audio_Server/AudioServer/AudioServer/AudioServer.csproj": {
+    "/home/ubuntu/Audio_Server/AudioServer.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/ubuntu/Audio_Server/AudioServer/AudioServer/AudioServer.csproj",
+        "projectUniqueName": "/home/ubuntu/Audio_Server/AudioServer.csproj",
         "projectName": "AudioServer",
-        "projectPath": "/home/ubuntu/Audio_Server/AudioServer/AudioServer/AudioServer.csproj",
+        "projectPath": "/home/ubuntu/Audio_Server/AudioServer.csproj",
         "packagesPath": "/home/ubuntu/.nuget/packages/",
-        "outputPath": "/home/ubuntu/Audio_Server/AudioServer/AudioServer/obj/",
+        "outputPath": "/home/ubuntu/Audio_Server/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/ubuntu/.nuget/NuGet/NuGet.Config"

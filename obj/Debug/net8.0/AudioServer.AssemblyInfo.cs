@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AudioServer")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+61610492259c21a0fd7a727dc4c38a68c0c47838")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7d7a515a04ebf0575a22096c5dab30b3e1a0c64d")]
 [assembly: System.Reflection.AssemblyProductAttribute("AudioServer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AudioServer")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
