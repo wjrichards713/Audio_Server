@@ -86,6 +86,11 @@
         let ws;
         let audioContext, mediaStream, audioPort, audioHost;
         let activeChannels = new Set();
+        let audios = new Map();
+        let audioQueues = new Map();
+        let audioPlaying = new Map();
+        let lastTimestamps = new Map();
+        let audioDecoders = new Map();
 
         function addChannel() {
             const channelId = document.getElementById('channelId').value;
@@ -224,6 +229,32 @@
             document.getElementById('connectBtn' + channel_id).classList.add('hidden');
             window.electronAPI.send({ channel: channel_id, audioPort, audioHost, audioPacket: new Float32Array(1920).fill(0) });
             document.getElementById('disconnectBtn' + channel_id).classList.remove('hidden');
+            audios.set(channel_id, new AudioContext({ sampleRate: 48000 }));
+            audioQueues.set(channel_id, []);
+            audioPlaying.set(channel_id, false);
+            lastTimestamps.set(channel_id, 0);
+            audioDecoders.set(channel_id, new AudioDecoder({
+                output: (pcmFrame) => {
+                    console.log("PCM Frame Received:", pcmFrame);
+                    const numFrames = pcmFrame.numberOfFrames;
+                    const numChannels = pcmFrame.numberOfChannels;
+                    const sampleRate = pcmFrame.sampleRate;
+                    const allocationSize = pcmFrame.allocationSize({ planeIndex: 0 });
+                    const pcmData = new Float32Array(allocationSize / 4);
+                    const duration = pcmFrame.duration / 1000000;
+
+                    pcmFrame.copyTo(pcmData, { planeIndex: 0 });
+                    audioQueues.get(channel_id).push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
+
+                    // Start playback if not already running
+                    if (!audioPlaying.get(channel_id)) {
+                        audioPlaying.set(channel_id, true);
+                        playBufferedAudio(channel_id);
+                    }
+                },
+                error: (err) => console.error("Decoding error:", err),
+            }));
+            audioDecoders.get(channel_id).configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
         }
 
         async function disconnectUdp(channel_id) {
@@ -321,62 +352,31 @@
 
         fetchUdpPort();
 
-        const audioCtx = new AudioContext({ sampleRate: 48000 });
-        const audioQueue = [];
-        let playing = false;
-        let lastTimestamp = 0;
-
-        const audioDecoder = new AudioDecoder({
-            output: (pcmFrame) => {
-                console.log("PCM Frame Received:", pcmFrame);
-
-                const numFrames = pcmFrame.numberOfFrames;
-                const numChannels = pcmFrame.numberOfChannels;
-                const sampleRate = pcmFrame.sampleRate;
-                const allocationSize = pcmFrame.allocationSize({ planeIndex: 0 });
-                const pcmData = new Float32Array(allocationSize / 4);
-                const duration = pcmFrame.duration / 1000000;
-
-                pcmFrame.copyTo(pcmData, { planeIndex: 0 });
-                audioQueue.push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
-
-                // Start playback if not already running
-                if (!playing) {
-                    playing = true;
-                    playBufferedAudio();
-                }
-            },
-            error: (err) => console.error("Decoding error:", err),
-        });
-
-        // Configure Opus decoder
-        audioDecoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
-
         // Function to play buffered PCM frames with 60ms spacing
-        function playBufferedAudio() {
-            if (audioQueue.length === 0) {
-                playing = false;
+        function playBufferedAudio(channel_id) {
+            if (audioQueues.get(channel_id).length === 0) {
+                audioPlaying.set(channel_id, false);
                 return;
             }
 
-            const { pcmData, numFrames, numChannels, sampleRate, duration } = audioQueue.shift();
-            const buffer = audioCtx.createBuffer(numChannels, numFrames, sampleRate);
+            const { pcmData, numFrames, numChannels, sampleRate, duration } = audioQueues.get(channel_id).shift();
+            const buffer = audios.get(channel_id).createBuffer(numChannels, numFrames, sampleRate);
 
             buffer.copyToChannel(pcmData, 0);
 
-            const source = audioCtx.createBufferSource();
+            const source = audios.get(channel_id).createBufferSource();
             source.buffer = buffer;
-            source.connect(audioCtx.destination);
+            source.connect(audios.get(channel_id).destination);
 
             // Ensure frames are played at exactly 60ms intervals
-            const currentTime = audioCtx.currentTime;
-            const playbackTime = Math.max(currentTime, lastTimestamp + duration);
+            const currentTime = audios.get(channel_id).currentTime;
+            const playbackTime = Math.max(currentTime, lastTimestamps.get(channel_id) + duration);
 
             source.start(playbackTime);
-            lastTimestamp = playbackTime;
+            lastTimestamps.set(channel_id, playbackTime);
 
             // Schedule next frame after 60ms
-            setTimeout(playBufferedAudio, (duration * 1000) - 10);
+            setTimeout(() => playBufferedAudio(channel_id), (duration * 1000) - 10);
         }
 
         var timeout = null;
@@ -388,7 +388,7 @@
             timeout = setTimeout(() => {
                 btn.parentElement.parentElement.style.backgroundColor = "transparent";
             }, 500);
-            audioDecoder.decode(
+            audioDecoders.get(channel_id).decode(
                 new EncodedAudioChunk({
                     type: "key",
                     timestamp: performance.now() * 1000, // Ensure correct timing
@@ -402,106 +402,3 @@
 </body>
 
 </html>
-
-
-
-<!-- const audioContexts = {};
-const audioQueues = {};
-const playingStates = {};
-const lastTimestamps = {};
-
-// Function to play buffered PCM frames with the channel-specific AudioContext
-function playBufferedAudio(channelId) {
-  if (!audioQueues[channelId] || audioQueues[channelId].length === 0) {
-    playingStates[channelId] = false;
-    return;
-  }
-
-  // Ensure each channel has its own AudioContext
-  if (!audioContexts[channelId]) {
-    audioContexts[channelId] = new AudioContext();
-  }
-  const audioCtx = audioContexts[channelId];
-
-  // Dequeue the next buffered PCM frame
-  const { pcmData, numFrames, numChannels, sampleRate, duration } = audioQueues[channelId].shift();
-  const buffer = audioCtx.createBuffer(numChannels, numFrames, sampleRate);
-
-  // Copy PCM data into the buffer (assuming data is for channel 0)
-  buffer.copyToChannel(pcmData, 0);
-
-  const source = audioCtx.createBufferSource();
-  source.buffer = buffer;
-  source.connect(audioCtx.destination);
-
-  // Schedule playback: use the context's current time and last timestamp to maintain continuity
-  const currentTime = audioCtx.currentTime;
-  const playbackTime = Math.max(currentTime, lastTimestamps[channelId] + duration);
-  source.start(playbackTime);
-  lastTimestamps[channelId] = playbackTime;
-
-  // Schedule the next frame, adjusting the delay as needed
-  setTimeout(() => playBufferedAudio(channelId), (duration * 1000) - 10);
-}
-
-// Configure a single AudioDecoder (if shared among channels) or consider one per channel
-const audioDecoder = new AudioDecoder({
-  output: (pcmFrame, channelId) => {
-    console.log(`PCM Frame Received for Channel ${channelId}:`, pcmFrame);
-    
-    const numFrames = pcmFrame.numberOfFrames;
-    const numChannels = pcmFrame.numberOfChannels;
-    const sampleRate = pcmFrame.sampleRate;
-    const allocationSize = pcmFrame.allocationSize({ planeIndex: 0 });
-    const pcmData = new Float32Array(allocationSize / 4);
-    const duration = pcmFrame.duration / 1000000; // Convert microseconds to seconds
-
-    pcmFrame.copyTo(pcmData, { planeIndex: 0 });
-
-    // Initialize per-channel state if not present
-    if (!audioQueues[channelId]) {
-      audioQueues[channelId] = [];
-      playingStates[channelId] = false;
-      lastTimestamps[channelId] = 0;
-    }
-    
-    // Buffer the PCM frame for this channel
-    audioQueues[channelId].push({
-      pcmData,
-      numFrames,
-      numChannels,
-      sampleRate,
-      timestamp: performance.now(),
-      duration
-    });
-
-    // Start playback for this channel if not already running
-    if (!playingStates[channelId]) {
-      playingStates[channelId] = true;
-      playBufferedAudio(channelId);
-    }
-  },
-  error: (err) => console.error("Decoding error:", err),
-});
-
-// Configure the decoder (this example is set for Opus)
-audioDecoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
-
-// Listen for incoming audio packets from the Electron API stream
-window.electronAPI.on("stream", ({ channel_id, decryptedData }) => {
-  // Visual feedback logic omitted for brevity
-
-  audioDecoder.decode(
-    new EncodedAudioChunk({
-      type: "key",
-      timestamp: performance.now() * 1000, // Convert to microseconds for timing
-      duration: 100000, // 100ms in microseconds
-      data: decryptedData,
-    })
-  ).then(() => {
-    // Ensure that when the output callback is invoked, the correct channel is identified
-    audioDecoder.output = (pcmFrame) => {
-      audioDecoder.output(pcmFrame, channel_id);
-    };
-  }); -->
-<!-- }); -->
