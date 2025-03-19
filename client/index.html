@@ -186,6 +186,16 @@
                 if (event.data == "ping") {
                     ws.send("pong");
                 }
+                try {
+                    const msg = JSON.parse(event.data);
+                    if(msg.transmit_started) {
+                        document.getElementById('startBtn' + msg.transmit_started.channel_id).classList.add('hidden');
+                    } else if(msg.transmit_ended) {
+                        document.getElementById('startBtn' + msg.transmit_ended.channel_id).classList.remove('hidden');
+                    }
+                } catch ($e) {
+
+                }
             };
             ws.onerror = (error) => {
                 console.error("WebSocket error:", error);
@@ -330,6 +340,22 @@
 
                 document.getElementById('startBtn' + channel).classList.add('hidden');
                 document.getElementById('stopBtn' + channel).classList.remove('hidden');
+
+            
+                const affiliationId = document.getElementById('affiliationId').value;
+                const userName = document.getElementById('userName').value;
+                const agencyName = document.getElementById('agencyName').value;
+                
+                ws.send(JSON.stringify({
+                    transmit_started: {
+                        affiliation_id: affiliationId,
+                        user_name: userName,
+                        agency_name: agencyName,
+                        channel_id: channel,
+                        time: Math.floor(Date.now() / 1000)
+                    }
+                }));
+                
             } catch (error) {
                 console.error('Error capturing audio:', error);
                 document.getElementById('status').textContent = `Error capturing audio: ${error.message}`;
@@ -348,6 +374,20 @@
             }
             document.getElementById('startBtn' + channel).classList.remove('hidden');
             document.getElementById('stopBtn' + channel).classList.add('hidden');
+            
+            const affiliationId = document.getElementById('affiliationId').value;
+            const userName = document.getElementById('userName').value;
+            const agencyName = document.getElementById('agencyName').value;
+            
+            ws.send(JSON.stringify({
+                transmit_ended: {
+                    affiliation_id: affiliationId,
+                    user_name: userName,
+                    agency_name: agencyName,
+                    channel_id: channel,
+                    time: Math.floor(Date.now() / 1000)
+                }
+            }));
         }
 
         fetchUdpPort();
@@ -400,5 +440,4 @@
 
     </script>
 </body>
-
 </html>
