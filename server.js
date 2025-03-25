@@ -8,6 +8,7 @@ const Redis = require("ioredis");
 
 const udpSockets = {};
 const udpClients = {};
+const servers = {};
 const members = {};
 const users = {};
 const app = express();
@@ -31,7 +32,7 @@ app.get("/audio-server-port", async (req, res) => {
 app.get("/audio-server-connected-users", async (req, res) => {
   try {
     const {channel_id} = req.query;
-    res.json({ udpSockets, members, udpClients, users });
+    res.json({ udpSockets, members, udpClients, users, servers });
   } catch (err) {
     res.json([]);
   }
@@ -43,26 +44,27 @@ const wss = new WebSocket.Server({ port: 3001 }, () => {
   console.log('WebSocket server started on ws://localhost:3001');
 });
 const redis = new Redis({
-  host: 'localhost',
-  port: 6379,
-  // password: 'redenes@234',
+  host: process.env.REDIS_HOST,
+  port: process.env.REDIS_PORT,
+  password: process.env.REDIS_PASS,
 });
 const publisher = new Redis({
-  host: 'localhost',
-  port: 6379,
-  // password: 'redenes@234',
+  host: process.env.REDIS_HOST,
+  port: process.env.REDIS_PORT,
+  password: process.env.REDIS_PASS,
 });
 const subscriber = new Redis({
-  host: 'localhost',
-  port: 6379,
-  // password: 'redenes@234',
+  host: process.env.REDIS_HOST,
+  port: process.env.REDIS_PORT,
+  password: process.env.REDIS_PASS,
 });
 const activeRedisSubscriptions = new Set();
 subscriber.subscribe('servers');
 subscriber.on("message", async (channel_id, data) => {
   if(channel_id == 'servers') {
     console.log("Global Redis Message", {channel_id, data});
-
+    const channel_servers = await redis.smembers(data);
+    servers[data] = channel_servers;
     // tell every other server to connect to this server via udp
     return;
   }
@@ -92,7 +94,9 @@ subscriber.on("message", async (channel_id, data) => {
       });
     } else {
       console.log("Unsubscribing, ", channel_id);
+      await redis.srem(channel_id, process.env.AUDIOSERVER_ADDR);
       await subscriber.unsubscribe(channel_id);
+      await publisher.publish('servers', channel_id);
       activeRedisSubscriptions.delete(channel_id);
     }
   } else if(channel_id) {
@@ -125,7 +129,7 @@ wss.on('connection', async (socket, req) => {
         } catch ($e) {
           await createSocket(websocketId);
         }
-        await redis.sadd(channel_id, 'localhost:3002');
+        await redis.sadd(channel_id, process.env.AUDIOSERVER_ADDR);
         await publisher.publish('servers', channel_id);
         if (!activeRedisSubscriptions.has(channel_id)) {
           await subscriber.subscribe(channel_id);
@@ -171,6 +175,34 @@ wss.on('connection', async (socket, req) => {
     // delete users[websocketId];
   });
 });
+const machineSocket = dgram.createSocket("udp4");
+machineSocket.bind(3002, () => {
+  const {port} = machineSocket.address();
+  console.log('Socket bound to port '+port);
+  machineSocket.on('error', (err) => {
+      console.error('Socket error:', err);
+  });
+  machineSocket.on("message", (data, rinfo) => {
+    try {
+      const {packet, port} = JSON.parse(data.toString('utf-8'));
+      if (packet.channel_id && members[packet.channel_id]) {
+        console.log(packet, port, members[packet.channel_id]);
+        members[packet.channel_id].forEach((p) => {
+          if(p != port && udpSockets[p] && udpClients[p]) {
+          // if(udpSockets[p]) {
+            udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
+              if (err) {
+                console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
+              } else {
+                console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
+              }
+            });
+          }
+        });
+      }
+    } catch ($e) { }
+  });
+});
 function createSocket(p = 0) {
   return new Promise((resolve, reject) => {
     const socket = dgram.createSocket("udp4");
@@ -191,29 +223,24 @@ function createSocket(p = 0) {
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
-        console.log(rinfo, msg.toString('utf-8'));
+        // console.log(rinfo, msg.toString('utf-8'));
         reinitTimeout();
+        udpClients[port] = rinfo;
         try {
           const packet = JSON.parse(msg.toString('utf-8'));
           if (packet.channel_id && members[packet.channel_id]) {
-            members[packet.channel_id].forEach((p) => {
-              if(p != port && udpSockets[p] && udpClients[p]) {
-              // if(udpSockets[p]) {
-                udpSockets[p].send(msg, udpClients[p].port, udpClients[p].address, (err) => {
-                  if (err) {
-                    console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
-                  } else {
-                    console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
-                  }
-                });
-              }
+            servers[packet.channel_id].forEach((server_address) => {
+              const [ip, p] = server_address.split(":");
+              machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
+                if (err) {
+                  console.error(`Failed to send to ${ip}:${p}`, err);
+                } else {
+                  console.log(`Forwarded packet to ${ip}:${p}`);
+                }
+              })
             });
           }
-          udpClients[port] = rinfo;
-        } catch ($e) {
-          // console.error($e);
-          udpClients[port] = rinfo;
-        }
+        } catch ($e) {}
       });
       socket.on("close", () => {
         console.log(`UDP Socket on port ${port} closed`);
@@ -226,19 +253,3 @@ function createSocket(p = 0) {
     });
   });
 }
-const socket = dgram.createSocket("udp4");
-socket.bind(3002, () => {
-  const {port} = socket.address();
-  console.log('Socket bound to port '+port);
-  socket.on('error', (err) => {
-      console.error('Socket error:', err);
-  });
-  socket.on("message", (msg, rinfo) => {
-    try {
-      const data = JSON.parse(msg.toString('utf-8'));
-      console.log({data, rinfo});
-    } catch ($e) {
-      console.error("Error ::: ", $e);
-    }
-  });
-});
