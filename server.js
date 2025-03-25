@@ -1,12 +1,10 @@
 const dgram = require("dgram");
-// const fs = require('fs');
 const WebSocket = require('ws');
-const crypto = require('crypto');
-// const {OpusEncoder} = require('node-opus');
 const express = require('express');
 const cors = require("cors");
-// const wav = require('wav');
 require('dotenv').config();
+
+const Redis = require("ioredis");
 
 const udpSockets = {};
 const udpClients = {};
@@ -41,63 +39,107 @@ app.get("/audio-server-connected-users", async (req, res) => {
 app.listen(3000, () => {
   console.log(`Express API running on http://localhost:3000`);
 });
-
 const wss = new WebSocket.Server({ port: 3001 }, () => {
   console.log('WebSocket server started on ws://localhost:3001');
+});
+const redis = new Redis({
+  host: 'localhost',
+  port: 6379,
+  // password: 'redenes@234',
+});
+const publisher = new Redis({
+  host: 'localhost',
+  port: 6379,
+  // password: 'redenes@234',
+});
+const subscriber = new Redis({
+  host: 'localhost',
+  port: 6379,
+  // password: 'redenes@234',
+});
+const activeRedisSubscriptions = new Set();
+subscriber.subscribe('servers');
+subscriber.on("message", async (channel_id, data) => {
+  if(channel_id == 'servers') {
+    console.log("Global Redis Message", {channel_id, data});
+
+    // tell every other server to connect to this server via udp
+    return;
+  }
+  const {message, websocketId} = JSON.parse(data);
+  console.log("Redis Message", {message, websocketId});
+  if(message.connect) {
+    users[websocketId] = {...message.connect, channel_id: null};
+    members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId)) {
+        if(client.websocketId != websocketId) {
+          // client.send(JSON.stringify({...message, channel_id}));
+          client.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
+        } else {
+          client.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
+        }
+      }
+    });
+  } else if (message.disconnect) {
+    members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
+    if(members[channel_id].length) {
+      wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
+          // client.send(JSON.stringify(message));
+          client.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
+        }
+      });
+    } else {
+      console.log("Unsubscribing, ", channel_id);
+      await subscriber.unsubscribe(channel_id);
+      activeRedisSubscriptions.delete(channel_id);
+    }
+  } else if(channel_id) {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
+        client.send(JSON.stringify(message));
+      }
+    });
+  }
 });
 wss.on('connection', async (socket, req) => {
   console.log('WebSocket User Connected', req.url);
   const queryParams = new URL(`http://localhost${req.url}`).searchParams;
   const websocketId = queryParams.get('websocket_id');
-  socket.websocketId = websocketId;
+  socket.websocketId = websocketId; // TODO remove this line not needed
   try {
     udpSockets[websocketId].address();
   } catch ($e) {
     await createSocket(websocketId);
   }
-
   socket.on('message', async (message) => {
     message = message instanceof Buffer ? message.toString('utf-8') : message;
     try {
       message = JSON.parse(message);
-      console.log(message);
+      console.log("Websocket Message", message);
       if(message.connect) {
         const {channel_id} = message.connect;
-        users[websocketId] = {...message.connect, channel_id: null};
         try {
           udpSockets[websocketId].address();
         } catch ($e) {
           await createSocket(websocketId);
         }
-        members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
-        wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != socket.websocketId) {
-            // client.send(JSON.stringify({...message, channel_id}));
-            client.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
-          }
-        });
-        socket.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
+        await redis.sadd(channel_id, 'localhost:3002');
+        await publisher.publish('servers', channel_id);
+        if (!activeRedisSubscriptions.has(channel_id)) {
+          await subscriber.subscribe(channel_id);
+          activeRedisSubscriptions.add(channel_id);
+        }
+        await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
       } else if(message.disconnect) {
         const {channel_id} = message.disconnect;
-        members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
-        wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != socket.websocketId) {
-            // client.send(JSON.stringify(message));
-            client.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
-          }
-        });
+        publisher.publish(channel_id, JSON.stringify({message, websocketId}));
       } else {
         for (const key in message) {
           if (Object.prototype.hasOwnProperty.call(message, key)) {
             const {channel_id} = message[key];
-            if(channel_id) {
-              // send message to all member in same channel
-              wss.clients.forEach((client) => {
-                if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != socket.websocketId) {
-                  client.send(JSON.stringify(message));
-                }
-              });
-            }
+            publisher.publish(channel_id, JSON.stringify({message, websocketId}));
           }
         }
       }
@@ -108,23 +150,27 @@ wss.on('connection', async (socket, req) => {
   socket.on('close', async () => {
     console.log('WebSocket User Disconnected', req.url);
     const channels = Object.keys(members);
-    const relevantMembers = [];
     channels.forEach((channel_id) => {
-      relevantMembers.concat((members[channel_id] || []).filter(item => !relevantMembers.includes(item)));
-    });
-    wss.clients.forEach(async (client) => {
-      if (client.readyState === WebSocket.OPEN && client.websocketId != socket.websocketId && relevantMembers.includes(client.websocketId)) {
-        await client.send(JSON.stringify({disconnect: users[websocketId] }));
-      }
+      publisher.publish(channel_id, JSON.stringify({message: {disconnect: {...users[websocketId], channel_id}}, websocketId}));
     });
     udpSockets[websocketId] && udpSockets[websocketId].close();
-    for(var channel_id in members) {
-      members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
-    }
     delete users[websocketId];
+    // const relevantMembers = [];
+    // channels.forEach((channel_id) => {
+    //   relevantMembers.concat((members[channel_id] || []).filter(item => !relevantMembers.includes(item)));
+    // });
+    // wss.clients.forEach(async (client) => {
+    //   if (client.readyState === WebSocket.OPEN && client.websocketId != websocketId && relevantMembers.includes(client.websocketId)) {
+    //     await client.send(JSON.stringify({disconnect: users[websocketId] }));
+    //   }
+    // });
+    // udpSockets[websocketId] && udpSockets[websocketId].close();
+    // for(var channel_id in members) {
+    //   members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
+    // }
+    // delete users[websocketId];
   });
 });
-
 function createSocket(p = 0) {
   return new Promise((resolve, reject) => {
     const socket = dgram.createSocket("udp4");
@@ -180,13 +226,19 @@ function createSocket(p = 0) {
     });
   });
 }
-
-function decryptAES(encryptedData, key) {
-  const iv = encryptedData.slice(0, 12); // Extract IV (first 12 bytes)
-  const encryptedPayload = encryptedData.slice(12, -16); // Extract encrypted data (excluding last 16 bytes)
-  const authTag = encryptedData.slice(-16); // Extract last 16 bytes as auth tag
-  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(authTag); // Set authentication tag
-  const decrypted = Buffer.concat([decipher.update(encryptedPayload), decipher.final()]);
-  return decrypted;
-}
+const socket = dgram.createSocket("udp4");
+socket.bind(3002, () => {
+  const {port} = socket.address();
+  console.log('Socket bound to port '+port);
+  socket.on('error', (err) => {
+      console.error('Socket error:', err);
+  });
+  socket.on("message", (msg, rinfo) => {
+    try {
+      const data = JSON.parse(msg.toString('utf-8'));
+      console.log({data, rinfo});
+    } catch ($e) {
+      console.error("Error ::: ", $e);
+    }
+  });
+});

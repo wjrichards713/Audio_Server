@@ -176,10 +176,10 @@
                 document.getElementById('disconnectWsBtn').classList.remove('hidden');
                 document.getElementById('status').textContent = `WebSocket Connected`;
                 document.getElementById('status').classList.add('text-green-600');
-                activeChannels.forEach(channelId => {
-                    sendChannelConnect(channelId);
-                });
-                window.electronAPI.send({ channel: channel_id, audioPort, audioHost, audioPacket: new Float32Array(1920).fill(0) });
+                // activeChannels.forEach(channelId => {
+                //     sendChannelConnect(channelId);
+                // });
+                // window.electronAPI.send({ channel: channel_id, audioPort, audioHost, audioPacket: new Float32Array(1920).fill(0) });
             };
             ws.onmessage = (event) => {
                 console.log("Received WebSocket message:", event.data);
@@ -206,16 +206,16 @@
                 document.getElementById('status').textContent = `WebSocket Disconnected`;
                 document.getElementById('status').classList.remove('text-green-600');
                 document.getElementById('status').classList.add('text-red-600');
-                activeChannels.forEach(async channelId => await stopAudio(channelId));
+                // activeChannels.forEach(async channelId => await stopAudio(channelId));
                 activeChannels.forEach(async channelId => await disconnectUdp(channelId));
                 document.getElementById('connectWsBtn').classList.remove('hidden');
                 document.getElementById('disconnectWsBtn').classList.add('hidden');
+                ws = undefined;
             };
         }
 
         async function disconnectWebsocket() {
             await ws.close();
-            ws = undefined;
         }
 
         async function connectUdp(channel_id) {
@@ -276,7 +276,7 @@
             document.getElementById('connectBtn' + channel_id).classList.remove('hidden');
             document.getElementById('disconnectBtn' + channel_id).classList.add('hidden');
             if (ws.readyState != 1) {
-                alert("WebSocket Connection Closed");
+                // alert("WebSocket Connection Closed");
                 return;
             }
             const affiliationId = document.getElementById('affiliationId').value;
@@ -364,7 +364,23 @@
 
         function stopAudio(channel) {
             if (audioContext) {
-                audioContext.close().then(() => console.log('Audio context closed.'));
+                audioContext.close().then(() => {
+                    console.log('Audio context closed.')
+                    const affiliationId = document.getElementById('affiliationId').value;
+                    const userName = document.getElementById('userName').value;
+                    const agencyName = document.getElementById('agencyName').value;
+                    if(ws) {
+                        ws.send(JSON.stringify({
+                            transmit_ended: {
+                                affiliation_id: affiliationId,
+                                user_name: userName,
+                                agency_name: agencyName,
+                                channel_id: channel,
+                                time: Math.floor(Date.now() / 1000)
+                            }
+                        }));
+                    }
+                });
                 audioContext = null;
             }
             if (mediaStream) {
@@ -374,20 +390,6 @@
             }
             document.getElementById('startBtn' + channel).classList.remove('hidden');
             document.getElementById('stopBtn' + channel).classList.add('hidden');
-            
-            const affiliationId = document.getElementById('affiliationId').value;
-            const userName = document.getElementById('userName').value;
-            const agencyName = document.getElementById('agencyName').value;
-            
-            ws.send(JSON.stringify({
-                transmit_ended: {
-                    affiliation_id: affiliationId,
-                    user_name: userName,
-                    agency_name: agencyName,
-                    channel_id: channel,
-                    time: Math.floor(Date.now() / 1000)
-                }
-            }));
         }
 
         fetchUdpPort();
