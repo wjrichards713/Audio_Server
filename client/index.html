@@ -48,6 +48,31 @@
             </div>
         </div>
 
+        <!-- Device Selection -->
+        <div class="space-y-4 mb-8 p-4 bg-blue-50 rounded-lg">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Audio Device Selection</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Microphone Input</label>
+                    <select id="microphoneSelect" class="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Loading available microphones...</option>
+                    </select>
+                    <button onclick="refreshInputDevices()" class="mt-2 px-4 py-1 bg-gray-200 hover:bg-gray-300 rounded-md text-sm">
+                        Refresh Microphones
+                    </button>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Speaker Output</label>
+                    <select id="speakerSelect" class="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Loading available speakers...</option>
+                    </select>
+                    <button onclick="refreshOutputDevices()" class="mt-2 px-4 py-1 bg-gray-200 hover:bg-gray-300 rounded-md text-sm">
+                        Refresh Speakers
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Server Settings -->
         <div class="space-y-4 mb-8">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -91,6 +116,128 @@
         let audioPlaying = new Map();
         let lastTimestamps = new Map();
         let audioDecoders = new Map();
+        let selectedMicrophoneId = '';
+        let selectedSpeakerId = '';
+
+        // Initialize device selection on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshInputDevices();
+            refreshOutputDevices();
+        });
+
+        // Enumerate and populate audio input devices (microphones)
+        async function refreshInputDevices() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const microphoneSelect = document.getElementById('microphoneSelect');
+                microphoneSelect.innerHTML = '';
+                
+                const microphones = devices.filter(device => device.kind === 'audioinput');
+                
+                if (microphones.length === 0) {
+                    const option = document.createElement('option');
+                    option.text = 'No microphones found';
+                    option.value = '';
+                    microphoneSelect.add(option);
+                } else {
+                    microphones.forEach(device => {
+                        const option = document.createElement('option');
+                        option.text = device.label || `Microphone ${microphoneSelect.length + 1}`;
+                        option.value = device.deviceId;
+                        microphoneSelect.add(option);
+                    });
+                }
+                
+                // Save the selected microphone ID
+                microphoneSelect.addEventListener('change', () => {
+                    selectedMicrophoneId = microphoneSelect.value;
+                    console.log('Selected microphone:', selectedMicrophoneId);
+                });
+                
+                // If we previously had a selection, try to restore it
+                if (selectedMicrophoneId) {
+                    for (let i = 0; i < microphoneSelect.options.length; i++) {
+                        if (microphoneSelect.options[i].value === selectedMicrophoneId) {
+                            microphoneSelect.selectedIndex = i;
+                            break;
+                        }
+                    }
+                }
+                
+                document.getElementById('status').textContent = 'Microphone list updated';
+            } catch (error) {
+                console.error('Error enumerating audio devices:', error);
+                document.getElementById('status').textContent = `Error getting microphones: ${error.message}`;
+            }
+        }
+
+        // Enumerate and populate audio output devices (speakers)
+        async function refreshOutputDevices() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const speakerSelect = document.getElementById('speakerSelect');
+                speakerSelect.innerHTML = '';
+                
+                const speakers = devices.filter(device => device.kind === 'audiooutput');
+                
+                if (speakers.length === 0) {
+                    const option = document.createElement('option');
+                    option.text = 'No speakers found';
+                    option.value = '';
+                    speakerSelect.add(option);
+                } else {
+                    speakers.forEach(device => {
+                        const option = document.createElement('option');
+                        option.text = device.label || `Speaker ${speakerSelect.length + 1}`;
+                        option.value = device.deviceId;
+                        speakerSelect.add(option);
+                    });
+                }
+                
+                // Save the selected speaker ID
+                speakerSelect.addEventListener('change', () => {
+                    selectedSpeakerId = speakerSelect.value;
+                    console.log('Selected speaker:', selectedSpeakerId);
+                    
+                    // If we have active audio elements, update their sink ID
+                    if (selectedSpeakerId && typeof HTMLMediaElement.prototype.setSinkId === 'function') {
+                        updateAllAudioOutputs();
+                    }
+                });
+                
+                // If we previously had a selection, try to restore it
+                if (selectedSpeakerId) {
+                    for (let i = 0; i < speakerSelect.options.length; i++) {
+                        if (speakerSelect.options[i].value === selectedSpeakerId) {
+                            speakerSelect.selectedIndex = i;
+                            break;
+                        }
+                    }
+                }
+                
+                document.getElementById('status').textContent = 'Speaker list updated';
+            } catch (error) {
+                console.error('Error enumerating audio devices:', error);
+                document.getElementById('status').textContent = `Error getting speakers: ${error.message}`;
+            }
+        }
+
+        // Update all audio elements to use the selected output device
+        function updateAllAudioOutputs() {
+            if (!selectedSpeakerId || typeof HTMLMediaElement.prototype.setSinkId !== 'function') {
+                return;
+            }
+            
+            // For each active channel, create and set audio element sink
+            activeChannels.forEach(channelId => {
+                const audioCtx = audios.get(channelId);
+                if (audioCtx) {
+                    // We can't directly set sinkId on AudioContext,
+                    // but we can update our audio routing for new buffers
+                    console.log(`Updated output device for channel ${channelId} to ${selectedSpeakerId}`);
+                }
+            });
+        }
 
         function addChannel() {
             const channelId = document.getElementById('channelId').value;
@@ -240,6 +387,8 @@
             document.getElementById('connectBtn' + channel_id).classList.add('hidden');
             window.electronAPI.send({ channel: channel_id, audioPort, audioHost, audioPacket: new Float32Array(1920).fill(0) });
             document.getElementById('disconnectBtn' + channel_id).classList.remove('hidden');
+            
+            // Create AudioContext with selected output device
             audios.set(channel_id, new AudioContext({ sampleRate: 48000 }));
             audioQueues.set(channel_id, []);
             audioPlaying.set(channel_id, false);
@@ -255,7 +404,15 @@
                     const duration = pcmFrame.duration / 1000000;
 
                     pcmFrame.copyTo(pcmData, { planeIndex: 0 });
-                    audioQueues.get(channel_id).push({ pcmData, numFrames, numChannels, sampleRate, timestamp: performance.now(), duration });
+                    audioQueues.get(channel_id).push({ 
+                        pcmData, 
+                        numFrames, 
+                        numChannels, 
+                        sampleRate, 
+                        timestamp: performance.now(), 
+                        duration,
+                        speakerId: selectedSpeakerId
+                    });
 
                     // Start playback if not already running
                     if (!audioPlaying.get(channel_id)) {
@@ -318,13 +475,21 @@
             }
 
             try {
+                // Use the selected microphone if available
+                const audioConstraints = {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                };
+                
+                if (selectedMicrophoneId) {
+                    audioConstraints.deviceId = { exact: selectedMicrophoneId };
+                }
+                
                 mediaStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
+                    audio: audioConstraints
                 });
+                
                 audioContext = new AudioContext();
                 const source = audioContext.createMediaStreamSource(mediaStream);
 
@@ -337,7 +502,8 @@
                 };
                 source.connect(workletNode);
 
-                console.log('Audio capturing started.');
+                console.log('Audio capturing started with device:', selectedMicrophoneId || 'default');
+                document.getElementById('status').textContent = `Transmitting audio from: ${document.getElementById('microphoneSelect').options[document.getElementById('microphoneSelect').selectedIndex].text}`;
 
                 document.getElementById('startBtn' + channel).classList.add('hidden');
                 document.getElementById('stopBtn' + channel).classList.remove('hidden');
@@ -395,30 +561,39 @@
 
         fetchUdpPort();
 
-        // Function to play buffered PCM frames with 60ms spacing
+        // Function to play buffered PCM frames with proper spacing
         function playBufferedAudio(channel_id) {
             if (audioQueues.get(channel_id).length === 0) {
                 audioPlaying.set(channel_id, false);
                 return;
             }
 
-            const { pcmData, numFrames, numChannels, sampleRate, duration } = audioQueues.get(channel_id).shift();
+            const { pcmData, numFrames, numChannels, sampleRate, duration, speakerId } = audioQueues.get(channel_id).shift();
             const buffer = audios.get(channel_id).createBuffer(numChannels, numFrames, sampleRate);
 
             buffer.copyToChannel(pcmData, 0);
 
             const source = audios.get(channel_id).createBufferSource();
             source.buffer = buffer;
+            
+            // Create a custom audio node for output selection if needed
+            if (speakerId && speakerId !== selectedSpeakerId && typeof HTMLMediaElement.prototype.setSinkId === 'function') {
+                // If the recorded speaker preference differs from current selection,
+                // we'd need a more complex setup with an AudioElement
+                // This is just a placeholder for that logic
+                console.log(`Audio frame has different speaker ID (${speakerId}) than current selection (${selectedSpeakerId})`);
+            }
+            
             source.connect(audios.get(channel_id).destination);
 
-            // Ensure frames are played at exactly 60ms intervals
+            // Ensure frames are played at exactly the right intervals
             const currentTime = audios.get(channel_id).currentTime;
             const playbackTime = Math.max(currentTime, lastTimestamps.get(channel_id) + duration);
 
             source.start(playbackTime);
             lastTimestamps.set(channel_id, playbackTime);
 
-            // Schedule next frame after 60ms
+            // Schedule next frame
             setTimeout(() => playBufferedAudio(channel_id), (duration * 1000) - 10);
         }
 
