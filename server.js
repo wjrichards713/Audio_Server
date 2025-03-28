@@ -31,7 +31,18 @@ app.get("/audio-server-port", async (req, res) => {
 });
 app.get("/audio-server-connected-users", async (req, res) => {
   try {
-    const {channel_id} = req.query;
+    const keys = await redis.keys("member_*");
+    const users = {};
+    for (const key of keys) {
+      const channel_id = key.replace("member_", "");
+      const entries = await redis.hgetall(key);
+      const parsedEntries = Object.entries(entries).map(([socketId, value]) => ({
+        socketId,
+        channel_id,
+        ...JSON.parse(value)
+      }));
+      users[channel_id] = parsedEntries;
+    }
     res.json({ udpSockets, members, udpClients, users, servers });
   } catch (err) {
     res.json([]);
@@ -63,7 +74,7 @@ subscriber.subscribe('servers');
 subscriber.on("message", async (channel_id, data) => {
   if(channel_id == 'servers') {
     console.log("Global Redis Message", {channel_id, data});
-    const channel_servers = await redis.smembers(data);
+    const channel_servers = await redis.smembers("server_"+data);
     servers[data] = channel_servers;
     // tell every other server to connect to this server via udp
     return;
@@ -71,30 +82,29 @@ subscriber.on("message", async (channel_id, data) => {
   const {message, websocketId} = JSON.parse(data);
   console.log("Redis Message", {message, websocketId});
   if(message.connect) {
-    users[websocketId] = {...message.connect, channel_id: null};
-    members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
+    const users_connected = [...new Set((await redis.hvals("member_" + channel_id)).map(JSON.parse).map(item => item.user))];
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId)) {
         if(client.websocketId != websocketId) {
           // client.send(JSON.stringify({...message, channel_id}));
-          client.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
+          client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
         } else {
-          client.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
+          client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
         }
       }
     });
   } else if (message.disconnect) {
-    members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
+    const users_connected = [...new Set((await redis.hvals("member_" + channel_id)).map(JSON.parse).map(item => item.user))];
     if(members[channel_id].length) {
       wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
           // client.send(JSON.stringify(message));
-          client.send(JSON.stringify({ channel_id, users_connected: members[channel_id].map((socketId) => users[socketId]) }));
+          client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
         }
       });
     } else {
       console.log("Unsubscribing, ", channel_id);
-      await redis.srem(channel_id, process.env.AUDIOSERVER_ADDR);
+      await redis.srem("server_"+channel_id, process.env.AUDIOSERVER_ADDR);
       await subscriber.unsubscribe(channel_id);
       await publisher.publish('servers', channel_id);
       activeRedisSubscriptions.delete(channel_id);
@@ -122,6 +132,7 @@ wss.on('connection', async (socket, req) => {
     try {
       message = JSON.parse(message);
       console.log("Websocket Message", message);
+
       if(message.connect) {
         const {channel_id} = message.connect;
         try {
@@ -129,16 +140,25 @@ wss.on('connection', async (socket, req) => {
         } catch ($e) {
           await createSocket(websocketId);
         }
-        await redis.sadd(channel_id, process.env.AUDIOSERVER_ADDR);
-        await publisher.publish('servers', channel_id);
+        members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId]; // update members to have new user added, members contains socket ids of this server only
+        await redis.hset("member_" + channel_id, `${process.env.AUDIOSERVER_ADDR.split(":")[0]}:${websocketId}`, JSON.stringify(message.connect));
+        await redis.sadd("server_" + channel_id, process.env.AUDIOSERVER_ADDR);
+        await publisher.publish('servers', channel_id); // inform all servers about the update has been made
         if (!activeRedisSubscriptions.has(channel_id)) {
           await subscriber.subscribe(channel_id);
           activeRedisSubscriptions.add(channel_id);
         }
-        await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+        await publisher.publish(channel_id, JSON.stringify({message, websocketId})); // broadcast the message as it is to all servers, so other clients will get it
+
       } else if(message.disconnect) {
         const {channel_id} = message.disconnect;
+        members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
+        await redis.hdel(
+          "member_" + channel_id,
+          `${process.env.AUDIOSERVER_ADDR.split(":")[0]}:${websocketId}`
+        );
         publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+
       } else {
         for (const key in message) {
           if (Object.prototype.hasOwnProperty.call(message, key)) {
@@ -154,25 +174,18 @@ wss.on('connection', async (socket, req) => {
   socket.on('close', async () => {
     console.log('WebSocket User Disconnected', req.url);
     const channels = Object.keys(members);
-    channels.forEach((channel_id) => {
-      publisher.publish(channel_id, JSON.stringify({message: {disconnect: {...users[websocketId], channel_id}}, websocketId}));
+    channels.forEach(async (channel_id) => {
+      if(members[channel_id].includes(websocketId)) {
+        members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
+        const user = JSON.parse(await redis.hget("member_" + channel_id, `${process.env.AUDIOSERVER_ADDR.split(":")[0]}:${websocketId}`));
+        await redis.hdel(
+          "member_" + channel_id,
+          `${process.env.AUDIOSERVER_ADDR.split(":")[0]}:${websocketId}`
+        );
+        publisher.publish(channel_id, JSON.stringify({message: {disconnect: {...user, channel_id}}, websocketId}));
+      }
     });
     udpSockets[websocketId] && udpSockets[websocketId].close();
-    delete users[websocketId];
-    // const relevantMembers = [];
-    // channels.forEach((channel_id) => {
-    //   relevantMembers.concat((members[channel_id] || []).filter(item => !relevantMembers.includes(item)));
-    // });
-    // wss.clients.forEach(async (client) => {
-    //   if (client.readyState === WebSocket.OPEN && client.websocketId != websocketId && relevantMembers.includes(client.websocketId)) {
-    //     await client.send(JSON.stringify({disconnect: users[websocketId] }));
-    //   }
-    // });
-    // udpSockets[websocketId] && udpSockets[websocketId].close();
-    // for(var channel_id in members) {
-    //   members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
-    // }
-    // delete users[websocketId];
   });
 });
 const machineSocket = dgram.createSocket("udp4");

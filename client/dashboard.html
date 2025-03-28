@@ -36,35 +36,35 @@
         <div id="liveStreamingUsers" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
     </div>
 
+    <!-- Users By Channel -->
+    <div class="bg-white rounded-lg shadow p-6 mb-8">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">All Users By Channel On All Servers</h2>
+        <div id="usersByChannel" class="space-y-4"></div>
+    </div>
+
     <!-- Detailed Information -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- UDP Sockets -->
         <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-xl font-semibold text-gray-900 mb-4">UDP Sockets Alloted</h2>
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">UDP Sockets Alloted On This Server</h2>
             <div id="udpSockets" class="space-y-4"></div>
-        </div>
-
-        <!-- Connected Users -->
-        <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-xl font-semibold text-gray-900 mb-4">Connected Users</h2>
-            <div id="connectedUsers" class="space-y-4"></div>
         </div>
 
         <!-- Channel Members -->
         <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-xl font-semibold text-gray-900 mb-4">Channel Members</h2>
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Channel Members On This Server</h2>
             <div id="channelMembers" class="space-y-4"></div>
         </div>
 
         <!-- Channel Servers -->
         <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-xl font-semibold text-gray-900 mb-4">Channel Servers</h2>
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Channel Servers Interconnected to this server</h2>
             <div id="channelServers" class="space-y-4"></div>
         </div>
 
         <!-- UDP Clients -->
         <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-xl font-semibold text-gray-900 mb-4">UDP Clients</h2>
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">UDP Clients on this server</h2>
             <div id="udpClients" class="space-y-4"></div>
         </div>
     </div>
@@ -78,7 +78,11 @@
             .then(data => {
                 // Update counts
                 document.getElementById('socketCount').textContent = Object.keys(data.udpSockets || {}).length;
-                document.getElementById('userCount').textContent = Object.keys(data.users || {}).length;
+                
+                // Count total users across all channels
+                const totalUsers = Object.values(data.users || {}).reduce((sum, users) => sum + users.length, 0);
+                document.getElementById('userCount').textContent = totalUsers;
+                
                 document.getElementById('channelCount').textContent = Object.keys(data.members || {}).length;
 
                 // Update UDP Sockets
@@ -90,14 +94,21 @@
                     </div>
                 `).join('');
 
-                // Update Connected Users
-                const connectedUsersDiv = document.getElementById('connectedUsers');
-                connectedUsersDiv.innerHTML = Object.entries(data.users || {}).map(([port, user]) => `
+                // Update Users By Channel
+                const usersByChannelDiv = document.getElementById('usersByChannel');
+                usersByChannelDiv.innerHTML = Object.entries(data.users || {}).map(([channelId, users]) => `
                     <div class="border rounded-lg p-4 bg-gray-50">
-                        <div class="font-semibold text-gray-700">${port}</div>
-                        <div class="text-sm text-gray-600">Agency: ${user.agency_name}</div>
-                        <div class="text-sm text-gray-600">UserName: ${user.user_name}</div>
-                        <div class="text-sm text-gray-600">Affiliation ID: ${user.affiliation_id}</div>
+                        <div class="font-semibold text-gray-700 mb-2">Channel: ${channelId}</div>
+                        <div class="space-y-2">
+                            ${users.map(user => `
+                                <div class="bg-white p-3 rounded border">
+                                    <div class="font-medium text-gray-800">${user.user_name}</div>
+                                    <div class="text-sm text-gray-600">Agency: ${user.agency_name}</div>
+                                    <div class="text-sm text-gray-600">Socket: ${user.socketId}</div>
+                                    <div class="text-sm text-gray-600">Affiliation ID: ${user.affiliation_id.substring(0, 8)}...</div>
+                                </div>
+                            `).join('')}
+                        </div>
                     </div>
                 `).join('');
 
@@ -110,7 +121,7 @@
                     </div>
                 `).join('');
 
-                // Update Channel Members
+                // Update Channel Servers
                 const channelServersDiv = document.getElementById('channelServers');
                 channelServersDiv.innerHTML = Object.entries(data.servers || {}).map(([channelId, servers]) => `
                     <div class="border rounded-lg p-4 bg-gray-50">
