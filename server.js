@@ -75,7 +75,11 @@ subscriber.on("message", async (channel_id, data) => {
   if(channel_id == 'servers') {
     console.log("Global Redis Message", {channel_id, data});
     const channel_servers = await redis.smembers("server_"+data);
-    servers[data] = channel_servers;
+    if(channel_servers && channel_servers.length) {
+      servers[data] = channel_servers;
+    } else {
+      delete servers[data];
+    }
     // tell every other server to connect to this server via udp
     return;
   }
@@ -108,6 +112,7 @@ subscriber.on("message", async (channel_id, data) => {
       await subscriber.unsubscribe(channel_id);
       await publisher.publish('servers', channel_id);
       activeRedisSubscriptions.delete(channel_id);
+      delete members[channel_id];
     }
   } else if(channel_id) {
     wss.clients.forEach((client) => {
