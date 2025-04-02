@@ -122,6 +122,10 @@ subscriber.on("message", async (channel_id, data) => {
     });
   }
 });
+async function getChannel(channelId) {
+  const raw = await redis.hget('channels', channelId);
+  return raw ? JSON.parse(raw) : null;
+}
 wss.on('connection', async (socket, req) => {
   console.log('WebSocket User Connected', req.url);
   const queryParams = new URL(`http://localhost${req.url}`).searchParams;
@@ -140,6 +144,9 @@ wss.on('connection', async (socket, req) => {
 
       if(message.connect) {
         const {channel_id} = message.connect;
+        if(!await getChannel(channel_id)) {
+          return;
+        }
         try {
           udpSockets[websocketId].address();
         } catch ($e) {
