@@ -24,6 +24,7 @@ app.get("/audio-server-port", async (req, res) => {
     res.json({
       udp_port: port,
       websocket_id: port,
+      udp_host: AUDIOSERVER_ADDR.split(":")[0],
       aes_key: "eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1"
     });
   } catch (err) {
