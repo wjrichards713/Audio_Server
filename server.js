@@ -16,11 +16,16 @@ app.use(cors());
 app.use(express.static('client'));
 app.get("/audio-server-port", async (req, res) => {
   try {
+    // Get server's IP address from environment variable or determine dynamically
+    const host = process.env.AUDIOSERVER_ADDR ? process.env.AUDIOSERVER_ADDR.split(":")[0] : req.headers.host.split(":")[0];
+    console.log(host);
     const {socket, port} = await createSocket();
     await socket.close();
     delete udpSockets[port];
+    
     res.json({
       udp_port: port,
+      udp_host: host,
       websocket_id: port,
       aes_key: "eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1"
     });
@@ -46,6 +51,93 @@ app.get("/audio-server-connected-users", async (req, res) => {
     res.json({ udpSockets, members, udpClients, users, servers });
   } catch (err) {
     res.json([]);
+  }
+});
+// Add these routes to your Express app
+
+// Middleware to parse JSON requests
+app.use(express.json());
+
+// GET all channels
+app.get("/channels", async (req, res) => {
+  try {
+    const channels = await redis.hgetall('channels');
+    
+    // Parse the JSON values in the hash
+    const parsedChannels = {};
+    for (const [channelId, channelData] of Object.entries(channels)) {
+      parsedChannels[channelId] = JSON.parse(channelData);
+    }
+    
+    res.json(parsedChannels);
+  } catch (err) {
+    console.error("Error fetching channels:", err);
+    res.status(500).json({ error: "Failed to retrieve channels" });
+  }
+});
+
+// GET a single channel
+app.get("/channels/:channelId", async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const channel = await getChannel(channelId);
+    
+    if (!channel) {
+      return res.status(404).json({ error: "Channel not found" });
+    }
+    
+    res.json(channel);
+  } catch (err) {
+    console.error("Error fetching channel:", err);
+    res.status(500).json({ error: "Failed to retrieve channel" });
+  }
+});
+
+// CREATE or UPDATE a channel
+app.post("/channels", async (req, res) => {
+  try {
+    const channelData = req.body;
+    
+    if (!channelData || !channelData.channel_id) {
+      return res.status(400).json({ error: "Missing required channel_id field" });
+    }
+    
+    const channelId = channelData.channel_id.toString();
+    
+    // Store the channel data
+    await redis.hset('channels', channelId, JSON.stringify(channelData));
+    
+    res.status(201).json({ 
+      message: "Channel created/updated successfully",
+      channel: channelData 
+    });
+  } catch (err) {
+    console.error("Error creating/updating channel:", err);
+    res.status(500).json({ error: "Failed to create/update channel" });
+  }
+});
+
+// DELETE a channel
+app.delete("/channels/:channelId", async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    
+    // Check if channel exists first
+    const channel = await getChannel(channelId);
+    if (!channel) {
+      return res.status(404).json({ error: "Channel not found" });
+    }
+    
+    // Delete the channel
+    await redis.hdel('channels', channelId);
+    
+    res.json({ 
+      message: "Channel deleted successfully",
+      channelId 
+    });
+  } catch (err) {
+    console.error("Error deleting channel:", err);
+    res.status(500).json({ error: "Failed to delete channel" });
   }
 });
 app.listen(3000, () => {
