@@ -309,7 +309,7 @@
             const response = await fetch('/audio-server-port');
             const data = await response.json();
             document.getElementById("wss").value = `wss://${location.hostname}/ws/?websocket_id=${data.websocket_id}`;
-            document.getElementById("host").value = location.hostname;
+            document.getElementById("host").value = data.udp_host;
             document.getElementById("port").value = data.udp_port;
             console.log(data);
             return data;
