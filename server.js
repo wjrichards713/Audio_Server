@@ -17,7 +17,7 @@ app.use(express.static('client'));
 app.get("/audio-server-port", async (req, res) => {
   try {
     // Get server's IP address from environment variable or determine dynamically
-    const host = process.env.AUDIOSERVER_ADDR ? process.env.AUDIOSERVER_ADDR.split(":")[0] : req.headers.host.split(":")[0];
+    const host = req.headers.host.split(":")[0];
     console.log(host);
     const {socket, port} = await createSocket();
     await socket.close();
