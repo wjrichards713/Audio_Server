@@ -2,9 +2,30 @@ const dgram = require("dgram");
 const WebSocket = require('ws');
 const express = require('express');
 const cors = require("cors");
+const https = require('https');
 require('dotenv').config();
 
 const Redis = require("ioredis");
+
+// Promise-based HTTP request to get public IP
+const getPublicIP = () => {
+  return new Promise((resolve, reject) => {
+    https.get('https://api.ipify.org', (response) => {
+      let data = '';
+      response.on('data', (chunk) => {
+        data += chunk;
+      });
+      response.on('end', () => {
+        resolve(data.trim());
+      });
+    }).on('error', (err) => {
+      reject(err);
+    });
+  });
+};
+
+// Store server's public IP
+let serverPublicIP = null;
 
 const udpSockets = {};
 const udpClients = {};
@@ -16,9 +37,24 @@ app.use(cors());
 app.use(express.static('client'));
 app.get("/audio-server-port", async (req, res) => {
   try {
-    // Get server's IP address from environment variable or determine dynamically
-    const host = req.headers.host.split(":")[0];
-    console.log(host);
+    // Get server's public IP address
+    let host;
+    
+    // Use cached IP or fetch a new one
+    if (serverPublicIP) {
+      host = serverPublicIP;
+    } else {
+      try {
+        host = await getPublicIP();
+        serverPublicIP = host; // Cache the IP for future use
+        console.log(`Detected public IP: ${host}`);
+      } catch (ipError) {
+        console.error("Error detecting public IP:", ipError);
+        // If external service fails, use a placeholder and let client know
+        host = 'auto'; // Special value indicating client should auto-detect
+      }
+    }
+    
     const {socket, port} = await createSocket();
     await socket.close();
     delete udpSockets[port];
@@ -140,6 +176,17 @@ app.delete("/channels/:channelId", async (req, res) => {
     res.status(500).json({ error: "Failed to delete channel" });
   }
 });
+// Initialize server's public IP at startup
+(async () => {
+  try {
+    serverPublicIP = await getPublicIP();
+    console.log(`Server's public IP initialized: ${serverPublicIP}`);
+  } catch (err) {
+    console.error("Failed to initialize server's public IP:", err);
+    // Use a fallback or let services fail gracefully
+  }
+})();
+
 app.listen(3000, () => {
   console.log(`Express API running on http://localhost:3000`);
 });
@@ -200,7 +247,8 @@ subscriber.on("message", async (channel_id, data) => {
       });
     } else {
       console.log("Unsubscribing, ", channel_id);
-      await redis.srem("server_"+channel_id, process.env.AUDIOSERVER_ADDR);
+      const serverAddress = `${serverPublicIP}:3002`; // 3002 is the machine socket port
+      await redis.srem("server_"+channel_id, serverAddress);
       await subscriber.unsubscribe(channel_id);
       await publisher.publish('servers', channel_id);
       activeRedisSubscriptions.delete(channel_id);
@@ -245,8 +293,10 @@ wss.on('connection', async (socket, req) => {
           await createSocket(websocketId);
         }
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId]; // update members to have new user added, members contains socket ids of this server only
-        await redis.hset("member_" + channel_id, `${process.env.AUDIOSERVER_ADDR.split(":")[0]}:${websocketId}`, JSON.stringify(message.connect));
-        await redis.sadd("server_" + channel_id, process.env.AUDIOSERVER_ADDR);
+        // Use the server's public IP address instead of AUDIOSERVER_ADDR
+        const serverAddress = `${serverPublicIP}:3002`; // 3002 is the machine socket port
+        await redis.hset("member_" + channel_id, `${serverPublicIP}:${websocketId}`, JSON.stringify(message.connect));
+        await redis.sadd("server_" + channel_id, serverAddress);
         await publisher.publish('servers', channel_id); // inform all servers about the update has been made
         if (!activeRedisSubscriptions.has(channel_id)) {
           await subscriber.subscribe(channel_id);
@@ -259,7 +309,7 @@ wss.on('connection', async (socket, req) => {
         members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
         await redis.hdel(
           "member_" + channel_id,
-          `${process.env.AUDIOSERVER_ADDR.split(":")[0]}:${websocketId}`
+          `${serverPublicIP}:${websocketId}`
         );
         publisher.publish(channel_id, JSON.stringify({message, websocketId}));
 
@@ -281,10 +331,10 @@ wss.on('connection', async (socket, req) => {
     channels.forEach(async (channel_id) => {
       if(members[channel_id].includes(websocketId)) {
         members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
-        const user = JSON.parse(await redis.hget("member_" + channel_id, `${process.env.AUDIOSERVER_ADDR.split(":")[0]}:${websocketId}`));
+        const user = JSON.parse(await redis.hget("member_" + channel_id, `${serverPublicIP}:${websocketId}`));
         await redis.hdel(
           "member_" + channel_id,
-          `${process.env.AUDIOSERVER_ADDR.split(":")[0]}:${websocketId}`
+          `${serverPublicIP}:${websocketId}`
         );
         publisher.publish(channel_id, JSON.stringify({message: {disconnect: {...user, channel_id}}, websocketId}));
       }
