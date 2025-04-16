@@ -416,9 +416,14 @@ machineSocket.bind(3002, () => {
       const {packet, port} = JSON.parse(data.toString('utf-8'));
       if (packet.channel_id && members[packet.channel_id]) {
         console.log(packet, port, members[packet.channel_id]);
+        console.log("🚀 ~ members[packet.channel_id].forEach ~   members[packet.channel_id]:",   members[packet.channel_id])
+
         members[packet.channel_id].forEach((p) => {
+          console.log("🚀 ~ machineSocket.on ~ packet, port:", p ,packet, port)
+
           if(p != port && udpSockets[p] && udpClients[p]) {
           // if(udpSockets[p]) {
+
             udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
               if (err) {
                 console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
