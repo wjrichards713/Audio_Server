@@ -459,20 +459,20 @@ function createSocket(p = 0) {
           const packet = JSON.parse(msg.toString('utf-8'));
           if (packet.channel_id && members[packet.channel_id]) {
             servers[packet.channel_id].forEach((server_address) => {
-              if(server_address == process.env.AUDIOSERVER_ADDR) {
-                members[packet.channel_id].forEach((p) => {
-                  // if(p != port && udpSockets[p] && udpClients[p]) {
-                  if(udpSockets[p]) {
-                    udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
-                      if (err) {
-                        console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
-                      } else {
-                        console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
-                      }
-                    });
-                  }
-                });
-              } else {
+              // if(server_address == process.env.AUDIOSERVER_ADDR) {
+              //   members[packet.channel_id].forEach((p) => {
+              //     // if(p != port && udpSockets[p] && udpClients[p]) {
+              //     if(udpSockets[p]) {
+              //       udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
+              //         if (err) {
+              //           console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
+              //         } else {
+              //           console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
+              //         }
+              //       });
+              //     }
+              //   });
+              // } else {
                 const [ip, p] = server_address.split(":");
                 machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
                   if (err) {
@@ -481,7 +481,7 @@ function createSocket(p = 0) {
                     console.log(`Forwarded packet to ${ip}:${p}`);
                   }
                 })
-              }
+              // }
             });
           }
         } catch ($e) {}
