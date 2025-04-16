@@ -233,13 +233,18 @@ subscriber.on("message", async (channel_id, data) => {
     const sortedNew = [...channels].sort();
     if(type==="PATCH"){
       patchedGroups.push(sortedNew);
+      console.log("🚀 ~ subscriber.on ~ patchedGroups:", patchedGroups)
+
       const users_connected_set = new Set();
       for (const ch of sortedNew) {
         patchedChannelSet.add(ch);
         const memberData = await redis.hvals("member_" + ch);
+        console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
         memberData.map(JSON.parse).forEach(item => users_connected_set.add(item.user));
       }
+        console.log("🚀 ~ subscriber.on ~ patchedChannelSet:", patchedChannelSet)
       const users_connected = [...users_connected_set];
+      console.log("🚀 ~ subscriber.on ~ users_connected:", users_connected)
       for (const ch of sortedNew) {
         if (members[ch]) {
           wss.clients.forEach((client) => {
