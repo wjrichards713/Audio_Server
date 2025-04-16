@@ -466,6 +466,7 @@ function createSocket(p = 0) {
                   // if(p != port && udpSockets[p] && udpClients[p]) {
                   if(udpSockets[p]) {
                     udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
+                      console.log("🚀 ~ udpSockets[p].send ~ udpClients[p].port, udpClients[p].address:", udpClients[p].port, udpClients[p].address)
                       if (err) {
                         console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
                       } else {
@@ -476,6 +477,7 @@ function createSocket(p = 0) {
                 });
               } else {
                 const [ip, p] = server_address.split(":");
+                console.log("🚀 ~ members[packet.channel_id].forEach ~ ip, p:", ip, p)
                 machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
                   if (err) {
                     console.error(`Failed to send to ${ip}:${p}`, err);
