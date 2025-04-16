@@ -450,9 +450,11 @@ function createSocket(p = 0) {
         }, 30000);
       }
       udpSockets[port] = socket;
+      console.log("🚀 ~ socket.bind ~ udpSockets:", udpSockets)
+
       console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
-        console.log(rinfo, msg.toString('utf-8'),  servers);
+        console.log(rinfo, msg.toString('utf-8'), servers);
         reinitTimeout();
         udpClients[port] = rinfo;
         try {
