@@ -220,7 +220,7 @@ subscriber.on("message", async (channel_id, data) => {
     console.log("Global Redis Message", {channel_id, data});
     const channel_servers = await redis.smembers("server_"+data);
     if(channel_servers && channel_servers.length) {
-    servers[data] = channel_servers;
+      servers[data] = channel_servers;
     } else {
       delete servers[data];
     }
@@ -452,7 +452,7 @@ function createSocket(p = 0) {
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
-        // console.log(rinfo, msg.toString('utf-8'));
+        console.log(rinfo, msg.toString('utf-8'));
         reinitTimeout();
         udpClients[port] = rinfo;
         try {
@@ -473,14 +473,14 @@ function createSocket(p = 0) {
                   }
                 });
               } else {
-              const [ip, p] = server_address.split(":");
-              machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
-                if (err) {
-                  console.error(`Failed to send to ${ip}:${p}`, err);
-                } else {
-                  console.log(`Forwarded packet to ${ip}:${p}`);
-                }
-              })
+                const [ip, p] = server_address.split(":");
+                machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
+                  if (err) {
+                    console.error(`Failed to send to ${ip}:${p}`, err);
+                  } else {
+                    console.log(`Forwarded packet to ${ip}:${p}`);
+                  }
+                })
               }
             });
           }
