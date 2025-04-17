@@ -256,34 +256,35 @@ subscriber.on("message", async (channel_id, data) => {
       }
       console.log("Added new patched group:", sortedNew);
 
-    } else if (type === "UNPATCH") { // Remove group
-        const groupIndex = patchedGroups.findIndex(
-          g => g.length === sortedNew.length && g.every((val, idx) => val === sortedNew[idx])
-        );
-        if (groupIndex !== -1) {
-          patchedGroups.splice(groupIndex, 1);
-        } else {
-          console.warn("⚠️ Tried to unpatch a group that doesn't exist:", sortedNew);
+    }else if (type === "UNPATCH") {
+      // Remove group
+      const groupIndex = patchedGroups.findIndex(
+        g => g.length === sortedNew.length && g.every((val, idx) => val === sortedNew[idx])
+      );
+      if (groupIndex !== -1) {
+        patchedGroups.splice(groupIndex, 1);
+      } else {
+        console.warn("⚠️ Tried to unpatch a group that doesn't exist:", sortedNew);
+      }
+      for (const ch of sortedNew) {
+        patchedChannelSet.delete(ch);
+        const users = new Set();
+        const memberData = await redis.hvals("member_" + ch);
+        memberData.map(JSON.parse).forEach(item => users.add(item.user_name));
+        const users_connected = [...users];
+    
+        if (members[ch]) {
+          wss.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN && members[ch].includes(client.websocketId)) {
+              client.send(JSON.stringify({
+                channel_id: ch,
+                users_connected : users_connected, // only users of this specific channel
+              }));
+            }
+          });
         }
-        for (const ch of sortedNew) {
-          patchedChannelSet.delete(ch);
-          const users = new Set();
-          const memberData = await redis.hvals("member_" + ch);
-          memberData.map(JSON.parse).forEach(item => users.add(item.user_name));
-          const users_connected = [...users];
-      
-          if (members[ch]) {
-            wss.clients.forEach((client) => {
-              if (client.readyState === WebSocket.OPEN && members[ch].includes(client.websocketId)) {
-                client.send(JSON.stringify({
-                  channel_id: ch,
-                  users_connected : users_connected, // only users of this specific channel
-                }));
-              }
-            });
-          }
-        }
-        console.log("Removed patched group:", sortedNew);
+      }
+      console.log("Removed patched group:", sortedNew);
     }
     return;
   }
@@ -510,3 +511,34 @@ function createSocket(p = 0) {
     });
   });
 }
+
+app.post("/channels/patch", async (req, res) => {
+  const { channels  } = req.body;
+  if (!channels || channels.length < 2 ) {
+    return res.status(400).json({ error: "Provide at least two channels." });
+  }
+  const alreadyPatched = channels.find(ch => patchedChannelSet.has(ch));
+  if (alreadyPatched) {
+    return res.status(400).json({ error: `Channel '${alreadyPatched}' is already in a patched group.` });
+  }
+  try {
+    await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
+    res.json({ message: "Channels patched successfully." });
+  } catch (err) {
+    console.error("Patch error:", err);
+    res.status(500).json({ error: "Patch failed." });
+  }
+});
+app.post("/channels/unpatch", async (req, res) => {
+  const { channels } = req.body;
+  if (!channels) {
+    return res.status(400).json({ error: "Provide channels to unmerge." });
+  }
+  try {
+    await publisher.publish("patched_info", JSON.stringify({"type": "UNPATCH", channels }));
+    res.json({ message: "Channels unpatched successfully." });
+  } catch (err) {
+    console.error("Unmerge error:", err);
+    res.status(500).json({ error: "Failed to unmerge." });
+  }
+});
