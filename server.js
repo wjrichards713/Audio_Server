@@ -526,6 +526,7 @@ function createSocket(p = 0) {
                 } else {
                   const [ip, p] = server_address.split(":");
                   console.log("🚀 ~ members[packet.channel_id].forEach ~ ip, p:", ip, p)
+                  packet.channel_id=ch;
                   machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
                     if (err) {
                       console.error(`Failed to send to ${ip}:${p}`, err);
