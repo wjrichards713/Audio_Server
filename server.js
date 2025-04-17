@@ -506,7 +506,7 @@ function createSocket(p = 0) {
             // 3. Iterate through all target channels (original + patched ones)
             for (const ch of targetChannels) {
               servers[ch].forEach((server_address) => {
-                console.log("🚀 ~ servers[ch].forEach ~ server_address:", server_address)
+                console.log("🚀 ~ servers[ch].forEach ~ server_address:", server_address,members[ch])
 
                 if(server_address == process.env.AUDIOSERVER_ADDR) {
                   members[ch].forEach((p) => {
