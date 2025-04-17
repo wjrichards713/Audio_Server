@@ -381,6 +381,7 @@ wss.on('connection', async (socket, req) => {
         }
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId]; // update members to have new user added, members contains socket ids of this server only
         // Use the server's public IP address instead of AUDIOSERVER_ADDR
+        console.log("-------------",members[channel_id] )
         const serverAddress = `${serverPublicIP}:3002`; // 3002 is the machine socket port
         await redis.hset("member_" + channel_id, `${serverPublicIP}:${websocketId}`, JSON.stringify(message.connect));
         await redis.sadd("server_" + channel_id, serverAddress);
@@ -441,7 +442,7 @@ machineSocket.bind(3002, () => {
       const {packet, port} = JSON.parse(data.toString('utf-8'));
       if (packet.channel_id && members[packet.channel_id]) {
         console.log(packet, port, members[packet.channel_id]);
-        console.log("🚀 ~ members[packet.channel_id].forEach ~   members[packet.channel_id]:",   members[packet.channel_id])
+        console.log("🚀 ~ mebers[packet.channel_id].forEmach ~   members[packet.channel_id]:",   members[packet.channel_id])
 
         members[packet.channel_id].forEach((p) => {
           console.log("🚀 ~ machineSocket.on ~ packet, port:", p ,packet, port)
