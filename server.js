@@ -241,7 +241,6 @@ subscriber.on("message", async (channel_id, data) => {
         console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
         memberData.map(JSON.parse).forEach(item => users_connected_set.add(item.user_name));
       }
-      // console.log("🚀 ~ subscriber.on ~ patchedChannelSet:", patchedChannelSet)
       const users_connected = [...users_connected_set];
       console.log("🚀 ~ subscriber.on ~ users_connected:", users_connected)
       for (const ch of sortedNew) {
@@ -306,7 +305,6 @@ subscriber.on("message", async (channel_id, data) => {
     console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
     memberData.map(JSON.parse).forEach(item => users_connected_set.add(item.user_name));
   }
-  // console.log("🚀 ~ subscriber.on ~ patchedChannelSet:", patchedChannelSet)
   const users_connected = [...users_connected_set];
   if(message.connect) {
     // const users_connected = [...new Set((await redis.hvals("member_" + channel_id)).map(JSON.parse).map(item => item.user))];
@@ -324,7 +322,7 @@ subscriber.on("message", async (channel_id, data) => {
     }
   } else if (message.disconnect) {
       for (const ch of targetChannels) {
-        if(members[ch].length) {
+        if(members[ch]) {
           wss.clients.forEach((client) => {
             if (client.readyState === WebSocket.OPEN && members[ch].includes(client.websocketId) && client.websocketId != websocketId) {
               // client.send(JSON.stringify(message));
