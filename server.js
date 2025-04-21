@@ -111,6 +111,9 @@ app.get("/channels", async (req, res) => {
     res.status(500).json({ error: "Failed to retrieve channels" });
   }
 });
+app.get('/patched-groups', (req, res) => {
+  res.json({ groups: patchedGroups });
+});
 
 // GET a single channel
 app.get("/channels/:channelId", async (req, res) => {
@@ -187,6 +190,8 @@ app.delete("/channels/:channelId", async (req, res) => {
   }
 })();
 
+
+
 app.listen(3000, () => {
   console.log(`Express API running on http://localhost:3000`);
 });
@@ -209,8 +214,26 @@ const subscriber = new Redis({
   password: process.env.REDIS_PASS,
 });
 const activeRedisSubscriptions = new Set();
-const patchedGroups =[];
-const patchedChannelSet = new Set(); // Tracks all channels that are currently patched
+let patchedGroups =[];
+let patchedChannelSet = new Set(); // Tracks all channels that are currently patched
+
+(async () => {
+  try {
+    const groupData = await redis.get("patched_groups");
+    if (groupData) {
+      patchedGroups = JSON.parse(groupData);
+    }
+
+    const channels = await redis.smembers("patched_channel_set");
+    if (channels && channels.length > 0) {
+      patchedChannelSet = new Set(channels);
+    }
+
+    console.log("✅ Patched data loaded from Redis:", patchedGroups);
+  } catch (err) {
+    console.error("❌ Failed to load patched data from Redis:", err);
+  }
+})();
 
 subscriber.subscribe('servers');
 subscriber.subscribe('patched_info');
@@ -231,12 +254,9 @@ subscriber.on("message", async (channel_id, data) => {
     const {type,channels}  = JSON.parse(data);
     const sortedNew = [...channels].sort();
     if(type==="PATCH"){
-      patchedGroups.push(sortedNew);
-      console.log("🚀 ~ subscriber.on ~ patchedGroups:", patchedGroups)
 
       const users_connected_set = new Set();
       for (const ch of sortedNew) {
-        patchedChannelSet.add(ch);
         const memberData = await redis.hvals("member_" + ch);
         console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
         memberData.map(JSON.parse).forEach(item => users_connected_set.add(item.user_name));
@@ -256,16 +276,7 @@ subscriber.on("message", async (channel_id, data) => {
 
     }else if (type === "UNPATCH") {
       // Remove group
-      const groupIndex = patchedGroups.findIndex(
-        g => g.length === sortedNew.length && g.every((val, idx) => val === sortedNew[idx])
-      );
-      if (groupIndex !== -1) {
-        patchedGroups.splice(groupIndex, 1);
-      } else {
-        console.warn("⚠️ Tried to unpatch a group that doesn't exist:", sortedNew);
-      }
       for (const ch of sortedNew) {
-        patchedChannelSet.delete(ch);
         const users = new Set();
         const memberData = await redis.hvals("member_" + ch);
         memberData.map(JSON.parse).forEach(item => users.add(item.user_name));
@@ -351,6 +362,14 @@ async function getChannel(channelId) {
   const raw = await redis.hget('channels', channelId);
   return raw ? JSON.parse(raw) : null;
 }
+async function savePatchedDataToRedis() {
+  await redis.set("patched_groups", JSON.stringify(patchedGroups));
+  await redis.del("patched_channel_set");
+  if (patchedChannelSet.size > 0) {
+    await redis.sadd("patched_channel_set", [...patchedChannelSet]);
+  }
+}
+
 wss.on('connection', async (socket, req) => {
   console.log('WebSocket User Connected', req.url);
   const queryParams = new URL(`http://localhost${req.url}`).searchParams;
@@ -550,17 +569,70 @@ function createSocket(p = 0) {
   });
 }
 
+function patchChannels(channels) {
+  const mergedSet = new Set(channels);
+  const groupsToRemove = [];
+
+  // Find and merge overlapping groups
+  for (const group of patchedGroups) {
+    if (group.some(ch => mergedSet.has(ch))) {
+      for (const ch of group) mergedSet.add(ch);
+      groupsToRemove.push(group);
+    }
+  }
+
+  // Remove old groups that are merged
+  for (const group of groupsToRemove) {
+    const index = patchedGroups.indexOf(group);
+    if (index !== -1) patchedGroups.splice(index, 1);
+  }
+
+  // Add merged group
+  const mergedArray = Array.from(mergedSet);
+  patchedGroups.push(mergedArray);
+
+  // Update channel set
+  for (const ch of mergedArray) patchedChannelSet.add(ch);
+}
+
+function unpatchChannels(channelsToRemove) {
+  for (let i = patchedGroups.length - 1; i >= 0; i--) {
+    const group = patchedGroups[i];
+
+    // Remove requested channels from the group
+    const filtered = group.filter(ch => !channelsToRemove.includes(ch));
+
+    if (filtered.length <= 1) {
+      // Group is either empty or has only one channel — remove it
+      patchedGroups.splice(i, 1);
+    } else if (filtered.length !== group.length) {
+      // Group is still valid but has been updated
+      patchedGroups[i] = filtered;
+    }
+  }
+
+  // Rebuild patchedChannelSet from updated groups
+  patchedChannelSet.clear();
+  for (const group of patchedGroups) {
+    for (const ch of group) {
+      patchedChannelSet.add(ch);
+    }
+  }
+}
+
+
+
 app.post("/channels/patch", async (req, res) => {
   const { channels  } = req.body;
   if (!channels || channels.length < 2 ) {
     return res.status(400).json({ error: "Provide at least two channels." });
   }
-  const alreadyPatched = channels.find(ch => patchedChannelSet.has(ch));
-  if (alreadyPatched) {
-    return res.status(400).json({ error: `Channel '${alreadyPatched}' is already in a patched group.` });
-  }
+  patchChannels(channels);
+
   try {
     await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
+    // update patchedGroups and patchedChannelSet...
+    await savePatchedDataToRedis();
     res.json({ message: "Channels patched successfully." });
   } catch (err) {
     console.error("Patch error:", err);
@@ -572,8 +644,12 @@ app.post("/channels/unpatch", async (req, res) => {
   if (!channels) {
     return res.status(400).json({ error: "Provide channels to unmerge." });
   }
+  unpatchChannels(channels);
+
   try {
     await publisher.publish("patched_info", JSON.stringify({"type": "UNPATCH", channels }));
+    await savePatchedDataToRedis();
+
     res.json({ message: "Channels unpatched successfully." });
   } catch (err) {
     console.error("Unmerge error:", err);

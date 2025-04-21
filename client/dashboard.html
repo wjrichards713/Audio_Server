@@ -67,7 +67,15 @@
             <h2 class="text-xl font-semibold text-gray-900 mb-4">UDP Clients on this server</h2>
             <div id="udpClients" class="space-y-4"></div>
         </div>
+
+
     </div>
+    <!-- Patched Channels Section (Full Width) -->
+    <div class="bg-white rounded-lg shadow p-6 mt-8">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Patched Channels</h2>
+        <div id="patchedChannels" class="space-y-4"></div>
+    </div>
+
 </div>
 
 <script>
@@ -172,6 +180,35 @@
                 }
             })
             .catch(error => console.error('Error fetching streaming data:', error));
+        // Fetch Patched Groups
+        fetch('/patched-groups')
+            .then(res => res.json())
+            .then(data => {
+                const patchedChannelsDiv = document.getElementById('patchedChannels');
+                const groups = data.groups || [];
+
+                if (groups.length === 0) {
+                    patchedChannelsDiv.innerHTML = '<div class="text-gray-500">No patched channels.</div>';
+                    return;
+                }
+
+                patchedChannelsDiv.innerHTML = `
+                    <div class="flex flex-wrap gap-4">
+                        ${groups.map(group => `
+                            <div class="border rounded-lg p-4 bg-gray-50 w-64">
+                                <div class="font-semibold text-gray-700 mb-2">Patched Group</div>
+                                <ul class="list-disc list-inside text-sm text-gray-600">
+                                    ${group.map(channel => `<li>${channel}</li>`).join('')}
+                                </ul>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            })
+            .catch(err => {
+                console.error('Error fetching patched groups:', err);
+            });
+
     }
 
     // Update every second
