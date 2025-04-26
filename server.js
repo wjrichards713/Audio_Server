@@ -136,6 +136,7 @@ app.get("/channels/:channelId", async (req, res) => {
 app.post("/channels", async (req, res) => {
   try {
     const channelData = req.body;
+    console.log("🚀 ~ app.post ~ channelData:", channelData)
     
     if (!channelData || !channelData.channel_id) {
       return res.status(400).json({ error: "Missing required channel_id field" });
@@ -529,7 +530,6 @@ function createSocket(p = 0) {
                 if(server_address == process.env.AUDIOSERVER_ADDR) {
                   members[ch].forEach((p) => {
                   // if(p != port && udpSockets[p] && udpClients[p]) {
-                  console.log("🚀 ~ I m here:", ip, p)
 
                   if(udpSockets[p]) {
                     udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
