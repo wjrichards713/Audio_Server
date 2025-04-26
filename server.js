@@ -254,6 +254,11 @@ subscriber.on("message", async (channel_id, data) => {
   }
 
   if (channel_id == 'patched_info') {
+    const groupData = await redis.get("patched_groups");
+    if (groupData) {
+      patchedGroups = JSON.parse(groupData);
+    }
+    console.log("🚀 ~ patchedGroups:", patchedGroups)
     const {type,channels}  = JSON.parse(data);
     const sortedNew = [...channels].sort();
     if(type==="PATCH"){
@@ -634,13 +639,11 @@ app.post("/channels/patch", async (req, res) => {
   patchChannels(channels);
 
   try {
-    await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
     // update patchedGroups and patchedChannelSet...
     await savePatchedDataToRedis();
-    const groupData = await redis.get("patched_groups");
-    if (groupData) {
-      patchedGroups = JSON.parse(groupData);
-    }
+    await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
+
+
     res.json({ message: "Channels patched successfully." });
   } catch (err) {
     console.error("Patch error:", err);
@@ -655,12 +658,9 @@ app.post("/channels/unpatch", async (req, res) => {
   unpatchChannels(channels);
 
   try {
-    await publisher.publish("patched_info", JSON.stringify({"type": "UNPATCH", channels }));
     await savePatchedDataToRedis();
-    const groupData = await redis.get("patched_groups");
-    if (groupData) {
-      patchedGroups = JSON.parse(groupData);
-    }
+    await publisher.publish("patched_info", JSON.stringify({"type": "UNPATCH", channels }));
+
     res.json({ message: "Channels unpatched successfully." });
   } catch (err) {
     console.error("Unmerge error:", err);
