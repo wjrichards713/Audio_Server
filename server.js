@@ -145,7 +145,7 @@ app.post("/channels", async (req, res) => {
     const channelId = channelData.channel_id.toString();
     
     // Store the channel data
-    await redis.hset('channels', channelId, JSON.stringify(channelData));
+    await redis.hset('channels', { [channelId]: JSON.stringify(channelData) });
     
     res.status(201).json({ 
       message: "Channel created/updated successfully",
@@ -525,7 +525,7 @@ function createSocket(p = 0) {
             // 3. Iterate through all target channels (original + patched ones)
             for (const ch of targetChannels) {
               servers[ch].forEach((server_address) => {
-                // console.log("🚀 ~ servers[ch].forEach ~ server_address:", server_address,members[ch])
+                console.log("🚀 ~ servers[ch].forEach ~ server_address:", server_address,members[ch])
 
                 if(server_address == process.env.AUDIOSERVER_ADDR) {
                   members[ch].forEach((p) => {
@@ -544,7 +544,7 @@ function createSocket(p = 0) {
                 });
                 } else {
                   const [ip, p] = server_address.split(":");
-                  // console.log("🚀 ~ members[packet.channel_id].forEach ~ ip, p:", ip, p)
+                  console.log("🚀 ~ members[packet.channel_id].forEach ~ ip, p:", ip, p)
                   packet.channel_id=ch;
                   machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
                     if (err) {
