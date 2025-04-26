@@ -529,6 +529,8 @@ function createSocket(p = 0) {
                 if(server_address == process.env.AUDIOSERVER_ADDR) {
                   members[ch].forEach((p) => {
                   // if(p != port && udpSockets[p] && udpClients[p]) {
+                  console.log("🚀 ~ I m here:", ip, p)
+
                   if(udpSockets[p]) {
                     udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
                       console.log("🚀 ~ udpSockets[p].send ~ udpClients[p].port, udpClients[p].address:", udpClients[p].port, udpClients[p].address)
