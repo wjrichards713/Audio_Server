@@ -255,10 +255,7 @@ subscriber.on("message", async (channel_id, data) => {
 
   if (channel_id == 'patched_info') {
     const groupData = await redis.get("patched_groups");
-    if (groupData) {
-      patchedGroups = JSON.parse(groupData);
-    }
-    console.log("🚀 ~ patchedGroups:", patchedGroups)
+
     const {type,channels}  = JSON.parse(data);
     const sortedNew = [...channels].sort();
     if(type==="PATCH"){
@@ -517,6 +514,10 @@ function createSocket(p = 0) {
           const packet = JSON.parse(msg.toString('utf-8'));
           if (packet.channel_id ) {
             let targetChannels = [packet.channel_id];
+            if (groupData) {
+              patchedGroups = JSON.parse(groupData);
+            }
+            console.log("🚀 ~ patchedGroups:", patchedGroups)
 
             // 2. Check if it's part of a patched group
             for (const group of patchedGroups) {
@@ -639,9 +640,10 @@ app.post("/channels/patch", async (req, res) => {
   patchChannels(channels);
 
   try {
+    await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
+
     // update patchedGroups and patchedChannelSet...
     await savePatchedDataToRedis();
-    await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
 
 
     res.json({ message: "Channels patched successfully." });
@@ -658,8 +660,9 @@ app.post("/channels/unpatch", async (req, res) => {
   unpatchChannels(channels);
 
   try {
-    await savePatchedDataToRedis();
     await publisher.publish("patched_info", JSON.stringify({"type": "UNPATCH", channels }));
+
+    await savePatchedDataToRedis();
 
     res.json({ message: "Channels unpatched successfully." });
   } catch (err) {
