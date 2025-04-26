@@ -226,7 +226,6 @@ let patchedChannelSet = new Set(); // Tracks all channels that are currently pat
     }
     console.log("🚀 ~ patchedGroups:", patchedGroups)
 
-
     const channels = await redis.smembers("patched_channel_set");
     if (channels && channels.length > 0) {
       patchedChannelSet = new Set(channels);
@@ -237,6 +236,7 @@ let patchedChannelSet = new Set(); // Tracks all channels that are currently pat
     console.error("❌ Failed to load patched data from Redis:", err);
   }
 })();
+
 
 subscriber.subscribe('servers');
 subscriber.subscribe('patched_info');
@@ -255,11 +255,13 @@ subscriber.on("message", async (channel_id, data) => {
 
   if (channel_id == 'patched_info') {
     const groupData = await redis.get("patched_groups");
-
+    if (groupData) {
+      patchedGroups = JSON.parse(groupData);
+    }
+    console.log("🚀 ~ patchedGroups:", patchedGroups)
     const {type,channels}  = JSON.parse(data);
     const sortedNew = [...channels].sort();
     if(type==="PATCH"){
-
       const users_connected_set = new Set();
       for (const ch of sortedNew) {
         const memberData = await redis.hvals("member_" + ch);
@@ -507,6 +509,7 @@ function createSocket(p = 0) {
 
       console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
+        
         console.log(rinfo, msg.toString('utf-8'), servers);
         reinitTimeout();
         udpClients[port] = rinfo;
@@ -514,10 +517,6 @@ function createSocket(p = 0) {
           const packet = JSON.parse(msg.toString('utf-8'));
           if (packet.channel_id ) {
             let targetChannels = [packet.channel_id];
-            if (groupData) {
-              patchedGroups = JSON.parse(groupData);
-            }
-            console.log("🚀 ~ patchedGroups:", patchedGroups)
 
             // 2. Check if it's part of a patched group
             for (const group of patchedGroups) {
@@ -580,6 +579,7 @@ function createSocket(p = 0) {
 }
 
 function patchChannels(channels) {
+  
   const mergedSet = new Set(channels);
   const groupsToRemove = [];
 
@@ -640,10 +640,9 @@ app.post("/channels/patch", async (req, res) => {
   patchChannels(channels);
 
   try {
-    await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
-
     // update patchedGroups and patchedChannelSet...
     await savePatchedDataToRedis();
+    await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
 
 
     res.json({ message: "Channels patched successfully." });
@@ -660,9 +659,8 @@ app.post("/channels/unpatch", async (req, res) => {
   unpatchChannels(channels);
 
   try {
-    await publisher.publish("patched_info", JSON.stringify({"type": "UNPATCH", channels }));
-
     await savePatchedDataToRedis();
+    await publisher.publish("patched_info", JSON.stringify({"type": "UNPATCH", channels }));
 
     res.json({ message: "Channels unpatched successfully." });
   } catch (err) {
