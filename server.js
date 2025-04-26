@@ -224,6 +224,8 @@ let patchedChannelSet = new Set(); // Tracks all channels that are currently pat
     if (groupData) {
       patchedGroups = JSON.parse(groupData);
     }
+    console.log("🚀 ~ patchedGroups:", patchedGroups)
+
 
     const channels = await redis.smembers("patched_channel_set");
     if (channels && channels.length > 0) {
@@ -322,7 +324,7 @@ subscriber.on("message", async (channel_id, data) => {
     // const users_connected = [...new Set((await redis.hvals("member_" + channel_id)).map(JSON.parse).map(item => item.user))];
     for (const ch of targetChannels) {
       wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN && members[ch].includes(client.websocketId)) {
+        if (client.readyState === WebSocket.OPEN && members[ch]?.includes(client.websocketId)) {
           if(client.websocketId != websocketId) {
             // client.send(JSON.stringify({...message, channel_id}));
             client.send(JSON.stringify({ ch, users_connected: users_connected }));
@@ -336,7 +338,7 @@ subscriber.on("message", async (channel_id, data) => {
       for (const ch of targetChannels) {
         if(members[ch]) {
           wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN && members[ch].includes(client.websocketId) && client.websocketId != websocketId) {
+            if (client.readyState === WebSocket.OPEN && members[ch]?.includes(client.websocketId) && client.websocketId != websocketId) {
               // client.send(JSON.stringify(message));
               client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
             }
@@ -353,7 +355,7 @@ subscriber.on("message", async (channel_id, data) => {
       }
     } else if(channel_id) {
     wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
+      if (client.readyState === WebSocket.OPEN && members[channel_id]?.includes(client.websocketId) && client.websocketId != websocketId) {
         client.send(JSON.stringify(message));
       }
     });
