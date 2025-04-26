@@ -637,6 +637,10 @@ app.post("/channels/patch", async (req, res) => {
     await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
     // update patchedGroups and patchedChannelSet...
     await savePatchedDataToRedis();
+    const groupData = await redis.get("patched_groups");
+    if (groupData) {
+      patchedGroups = JSON.parse(groupData);
+    }
     res.json({ message: "Channels patched successfully." });
   } catch (err) {
     console.error("Patch error:", err);
@@ -653,7 +657,10 @@ app.post("/channels/unpatch", async (req, res) => {
   try {
     await publisher.publish("patched_info", JSON.stringify({"type": "UNPATCH", channels }));
     await savePatchedDataToRedis();
-
+    const groupData = await redis.get("patched_groups");
+    if (groupData) {
+      patchedGroups = JSON.parse(groupData);
+    }
     res.json({ message: "Channels unpatched successfully." });
   } catch (err) {
     console.error("Unmerge error:", err);
