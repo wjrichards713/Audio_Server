@@ -3,6 +3,7 @@ const WebSocket = require('ws');
 const express = require('express');
 const cors = require("cors");
 const https = require('https');
+const os = require('os');
 require('dotenv').config();
 
 const Redis = require("ioredis");
@@ -191,6 +192,38 @@ app.delete("/channels/:channelId", async (req, res) => {
   }
 })();
 
+
+// Utility to get CPU usage per core
+function getCpuInfo() {
+  const cpus = os.cpus();
+  return cpus.map((core, index) => {
+    const total = Object.values(core.times).reduce((acc, tv) => acc + tv, 0);
+    const usage = ((total - core.times.idle) / total) * 100;
+
+    return {
+      core: index,
+      model: core.model,
+      speed: core.speed,
+      usage: usage.toFixed(2) + '%'
+    };
+  });
+}
+
+// Endpoint for CPU and RAM usage
+app.get('/system-stats', (req, res) => {
+  const memoryUsage = {
+    total: (os.totalmem() / 1024 / 1024).toFixed(2) + ' MB',
+    free: (os.freemem() / 1024 / 1024).toFixed(2) + ' MB',
+    used: ((os.totalmem() - os.freemem()) / 1024 / 1024).toFixed(2) + ' MB',
+    usagePercent: ((1 - os.freemem() / os.totalmem()) * 100).toFixed(2) + '%'
+  };
+
+  res.json({
+    cpu: getCpuInfo(),
+    memory: memoryUsage,
+    uptime: os.uptime() + ' seconds'
+  });
+});
 
 
 app.listen(3000, () => {
