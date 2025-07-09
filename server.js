@@ -4,9 +4,8 @@ const express = require('express');
 const cors = require("cors");
 const https = require('https');
 const os = require('os');
-require('dotenv').config();
-
 const Redis = require("ioredis");
+require('dotenv').config();
 
 // Promise-based HTTP request to get public IP
 const getPublicIP = () => {
@@ -27,13 +26,24 @@ const getPublicIP = () => {
 
 // Store server's public IP
 let serverPublicIP = null;
+// Initialize server's public IP at startup
+(async () => {
+  try {
+    serverPublicIP = await getPublicIP();
+    console.log(`Server's public IP initialized: ${serverPublicIP}`);
+  } catch (err) {
+    console.error("Failed to initialize server's public IP:", err);
+    // Use a fallback or let services fail gracefully
+  }
+})();
 
-const udpSockets = {};
-const udpClients = {};
-const servers = {};
-const members = {};
-const users = {};
-const app = express();
+// Global data structures for managing connections and server state
+const udpSockets = {}; // Stores UDP sockets indexed by user's websocket ID, eg: { 33055: Socket }
+const udpClients = {}; // Stores UDP client information (rinfo) indexed by user's websocket ID  { 33055: { port: 15000, address: 129.126.11.134 } }
+const servers = {}; // Tracks which servers are handling each channel { 555: ["35.90.120.85:3002"] }
+const members = {}; // Maps channel IDs to arrays of websocket IDs of connected users { 555: ["33055"] }
+
+const app = express(); // Express application instance
 app.use(cors());
 app.use(express.static('client'));
 app.get("/audio-server-port", async (req, res) => {
@@ -181,33 +191,6 @@ app.delete("/channels/:channelId", async (req, res) => {
     res.status(500).json({ error: "Failed to delete channel" });
   }
 });
-// Initialize server's public IP at startup
-(async () => {
-  try {
-    serverPublicIP = await getPublicIP();
-    console.log(`Server's public IP initialized: ${serverPublicIP}`);
-  } catch (err) {
-    console.error("Failed to initialize server's public IP:", err);
-    // Use a fallback or let services fail gracefully
-  }
-})();
-
-
-// Utility to get CPU usage per core
-function getCpuInfo() {
-  const cpus = os.cpus();
-  return cpus.map((core, index) => {
-    const total = Object.values(core.times).reduce((acc, tv) => acc + tv, 0);
-    const usage = ((total - core.times.idle) / total) * 100;
-
-    return {
-      core: index,
-      model: core.model,
-      speed: core.speed,
-      usage: usage.toFixed(2) + '%'
-    };
-  });
-}
 
 // Endpoint for CPU and RAM usage
 app.get('/system-stats', (req, res) => {
@@ -217,18 +200,30 @@ app.get('/system-stats', (req, res) => {
     used: ((os.totalmem() - os.freemem()) / 1024 / 1024).toFixed(2) + ' MB',
     usagePercent: ((1 - os.freemem() / os.totalmem()) * 100).toFixed(2) + '%'
   };
-
+  
   res.json({
-    cpu: getCpuInfo(),
+    cpu: function getCpuInfo() {
+      const cpus = os.cpus();
+      return cpus.map((core, index) => {
+        const total = Object.values(core.times).reduce((acc, tv) => acc + tv, 0);
+        const usage = ((total - core.times.idle) / total) * 100;
+
+        return {
+          core: index,
+          model: core.model,
+          speed: core.speed,
+          usage: usage.toFixed(2) + '%'
+        };
+      });
+    }(),
     memory: memoryUsage,
     uptime: os.uptime() + ' seconds'
   });
 });
-
-
 app.listen(3000, () => {
   console.log(`Express API running on http://localhost:3000`);
 });
+
 const wss = new WebSocket.Server({ port: 3001 }, () => {
   console.log('WebSocket server started on ws://localhost:3001');
 });
@@ -429,8 +424,10 @@ wss.on('connection', async (socket, req) => {
       if(message.connect) {
         const {channel_id} = message.connect;
         if(!await getChannel(channel_id)) {
+          console.log("channel not got");
           return;
         }
+        console.log("got channel");
         try {
           udpSockets[websocketId].address();
         } catch ($e) {
