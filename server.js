@@ -477,6 +477,7 @@ wss.on('connection', async (socket, req) => {
       message = JSON.parse(message);
       if(message.connect) {
         const { channel_id } = message.connect;
+        delete message.connect.channel_id;
         if(!await getChannel(channel_id)) {
           console.log(`User ${websocketId} tried to connect to ${channel_id} but channel is not yet registered`);
           socket.send(JSON.stringify({
@@ -499,7 +500,6 @@ wss.on('connection', async (socket, req) => {
           await subscriber.subscribe(channel_id);
           redis_channel_subscriptions.add(channel_id);
         }
-        delete message.connect.channel_id;
         await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
       } else if(message.disconnect) {
         const { channel_id } = message.disconnect;
