@@ -547,8 +547,7 @@ function createSocket(p = 0) {
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
-        
-        // console.log(rinfo, msg.toString('utf-8'), servers);
+        console.log("UDP Message received from:" , rinfo);
         reinitTimeout();
         udpClients[port] = rinfo;
         try {
