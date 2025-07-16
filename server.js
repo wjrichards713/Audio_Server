@@ -459,7 +459,7 @@ async function savePatchedDataToRedis() {
 }
 
 wss.on('connection', async (socket, req) => {
-  console.log('WebSocket User Connected', req.url);
+  console.log('WebSocket User Connected', req);
   const queryParams = new URL(`http://localhost${req.url}`).searchParams;
   const websocketId = queryParams.get('websocket_id');
   socket.websocketId = websocketId; // TODO remove this line not needed
