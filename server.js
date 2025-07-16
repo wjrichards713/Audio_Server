@@ -403,6 +403,7 @@ subscriber.on("message", async (channel_id, data) => {
 });
 async function getChannel(channelId) {
   const raw = await redis.hget('channels', channelId);
+  console.log(raw);
   return raw ? JSON.parse(raw) : null;
 }
 async function savePatchedDataToRedis() {
@@ -430,12 +431,11 @@ wss.on('connection', async (socket, req) => {
     message = message instanceof Buffer ? message.toString('utf-8') : message;
     try {
       message = JSON.parse(message);
-      // console.log("Websocket Message", message);
-
+      console.log("WSS:", message);
       if(message.connect) {
         const {channel_id} = message.connect;
         if(!await getChannel(channel_id)) {
-          // console.log("channel not got");
+          console.log(`User ${websocketId} tried to connect to ${channel_id} but channel is not yet registered`);
           return;
         }
         // console.log("got channel");
