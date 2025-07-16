@@ -58,7 +58,7 @@ app.get("/audio-server-port", async (req, res) => {
       try {
         host = await getPublicIP();
         serverPublicIP = host; // Cache the IP for future use
-        console.log(`Detected public IP: ${host}`);
+        // console.log(`Detected public IP: ${host}`);
       } catch (ipError) {
         console.error("Error detecting public IP:", ipError);
         // If external service fails, use a placeholder and let client know
@@ -147,7 +147,7 @@ app.get("/channels/:channelId", async (req, res) => {
 app.post("/channels", async (req, res) => {
   try {
     const channelData = req.body;
-    console.log("🚀 ~ app.post ~ channelData:", channelData)
+    // console.log("🚀 ~ app.post ~ channelData:", channelData)
     
     if (!channelData || !channelData.channel_id) {
       return res.status(400).json({ error: "Missing required channel_id field" });
@@ -252,14 +252,14 @@ let patchedChannelSet = new Set(); // Tracks all channels that are currently pat
     if (groupData) {
       patchedGroups = JSON.parse(groupData);
     }
-    console.log("🚀 ~ patchedGroups:", patchedGroups)
+    // console.log("🚀 ~ patchedGroups:", patchedGroups)
 
     const channels = await redis.smembers("patched_channel_set");
     if (channels && channels.length > 0) {
       patchedChannelSet = new Set(channels);
     }
 
-    console.log("✅ Patched data loaded from Redis:", patchedGroups);
+    // console.log("✅ Patched data loaded from Redis:", patchedGroups);
   } catch (err) {
     console.error("❌ Failed to load patched data from Redis:", err);
   }
@@ -271,7 +271,7 @@ subscriber.subscribe('patched_info');
 
 subscriber.on("message", async (channel_id, data) => {
   if(channel_id == 'servers') {
-    console.log("Global Redis Message", {channel_id, data});
+    // console.log("Global Redis Message", {channel_id, data});
     const channel_servers = await redis.smembers("server_"+data);
     if(channel_servers && channel_servers.length) {
       servers[data] = channel_servers;
@@ -286,18 +286,18 @@ subscriber.on("message", async (channel_id, data) => {
     if (groupData) {
       patchedGroups = JSON.parse(groupData);
     }
-    console.log("🚀 ~ patchedGroups:", patchedGroups)
+    // console.log("🚀 ~ patchedGroups:", patchedGroups)
     const {type,channels}  = JSON.parse(data);
     const sortedNew = [...channels].sort();
     if(type==="PATCH"){
       const users_connected_set = new Set();
       for (const ch of sortedNew) {
         const memberData = await redis.hvals("member_" + ch);
-        console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
+        // console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
         memberData.map(JSON.parse).forEach(item => users_connected_set.add(item.user_name));
       }
       const users_connected = [...users_connected_set];
-      console.log("🚀 ~ subscriber.on ~ users_connected:", users_connected)
+      // console.log("🚀 ~ subscriber.on ~ users_connected:", users_connected)
       for (const ch of sortedNew) {
         if (members[ch]) {
           wss.clients.forEach((client) => {
@@ -307,7 +307,7 @@ subscriber.on("message", async (channel_id, data) => {
           });
         }
       }
-      console.log("Added new patched group:", sortedNew);
+      // console.log("Added new patched group:", sortedNew);
 
     }else if (type === "UNPATCH") {
       // Remove group
@@ -328,13 +328,13 @@ subscriber.on("message", async (channel_id, data) => {
           });
         }
       }
-      console.log("Removed patched group:", sortedNew);
+      // console.log("Removed patched group:", sortedNew);
     }
     return;
   }
 
   const {message, websocketId} = JSON.parse(data);
-  console.log("Redis Message", {message, websocketId});
+  // console.log("Redis Message", {message, websocketId});
 
   let targetChannels = [channel_id];
   // 2. Check if it's part of a patched group
@@ -348,7 +348,7 @@ subscriber.on("message", async (channel_id, data) => {
   for (const ch of targetChannels) {
     patchedChannelSet.add(ch);
     const memberData = await redis.hvals("member_" + ch);
-    console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
+    // console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
     memberData.map(JSON.parse).forEach(item => users_connected_set.add(item.user_name));
   }
   const users_connected = [...users_connected_set];
@@ -376,7 +376,7 @@ subscriber.on("message", async (channel_id, data) => {
             }
           });
         } else {
-          console.log("Unsubscribing, ", channel_id);
+          // console.log("Unsubscribing, ", channel_id);
           const serverAddress = `${serverPublicIP}:3002`; // 3002 is the machine socket port
           await redis.srem("server_"+channel_id, serverAddress);
           await subscriber.unsubscribe(channel_id);
@@ -419,15 +419,15 @@ wss.on('connection', async (socket, req) => {
     message = message instanceof Buffer ? message.toString('utf-8') : message;
     try {
       message = JSON.parse(message);
-      console.log("Websocket Message", message);
+      // console.log("Websocket Message", message);
 
       if(message.connect) {
         const {channel_id} = message.connect;
         if(!await getChannel(channel_id)) {
-          console.log("channel not got");
+          // console.log("channel not got");
           return;
         }
-        console.log("got channel");
+        // console.log("got channel");
         try {
           udpSockets[websocketId].address();
         } catch ($e) {
@@ -435,7 +435,7 @@ wss.on('connection', async (socket, req) => {
         }
         members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId]; // update members to have new user added, members contains socket ids of this server only
         // Use the server's public IP address instead of AUDIOSERVER_ADDR
-        console.log("-------------",members[channel_id] )
+        // console.log("-------------",members[channel_id] )
         const serverAddress = `${serverPublicIP}:3002`; // 3002 is the machine socket port
         await redis.hset("member_" + channel_id, `${serverPublicIP}:${websocketId}`, JSON.stringify(message.connect));
         await redis.sadd("server_" + channel_id, serverAddress);
@@ -467,8 +467,8 @@ wss.on('connection', async (socket, req) => {
       console.log($e);
     }
   });
-  socket.on('close', async () => {
-    console.log('WebSocket User Disconnected', req.url);
+  socket.on('close', async (e) => {
+    console.log('WebSocket User Disconnected', req.url, e);
     const channels = Object.keys(members);
     channels.forEach(async (channel_id) => {
       if(members[channel_id].includes(websocketId)) {
@@ -487,7 +487,7 @@ wss.on('connection', async (socket, req) => {
 const machineSocket = dgram.createSocket("udp4");
 machineSocket.bind(3002, () => {
   const {port} = machineSocket.address();
-  console.log('Socket bound to port '+port);
+  // console.log('Socket bound to port '+port);
   machineSocket.on('error', (err) => {
       console.error('Socket error:', err);
   });
@@ -495,26 +495,28 @@ machineSocket.bind(3002, () => {
     try {
       const {packet, port} = JSON.parse(data.toString('utf-8'));
       if (packet.channel_id && members[packet.channel_id]) {
-        console.log(packet, port, members[packet.channel_id]);
-        console.log("🚀 ~ mebers[packet.channel_id].forEmach ~   members[packet.channel_id]:",   members[packet.channel_id])
+        // console.log(packet, port, members[packet.channel_id]);
+        // console.log("🚀 ~ mebers[packet.channel_id].forEmach ~   members[packet.channel_id]:",   members[packet.channel_id])
 
         members[packet.channel_id].forEach((p) => {
-          console.log("🚀 ~ machineSocket.on ~ packet, port:", p ,packet, port)
+          // console.log("🚀 ~ machineSocket.on ~ packet, port:", p ,packet, port)
 
           if(p != port && udpSockets[p] && udpClients[p]) {
           // if(udpSockets[p]) {
 
             udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
               if (err) {
-                console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
+                // console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
               } else {
-                console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
+                // console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
               }
             });
           }
         });
       }
-    } catch ($e) { }
+    } catch ($e) {
+      console.log($e);
+    }
   });
 });
 function createSocket(p = 0) {
@@ -535,12 +537,12 @@ function createSocket(p = 0) {
         }, 30000);
       }
       udpSockets[port] = socket;
-      console.log("🚀 ~ socket.bind ~ udpSockets:", udpSockets)
+      // console.log("🚀 ~ socket.bind ~ udpSockets:", udpSockets)
 
-      console.log(`UDP Socket listening on port ${port}`);
+      // console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
         
-        console.log(rinfo, msg.toString('utf-8'), servers);
+        // console.log(rinfo, msg.toString('utf-8'), servers);
         reinitTimeout();
         udpClients[port] = rinfo;
         try {
@@ -555,14 +557,14 @@ function createSocket(p = 0) {
                 break; // Exit loop once the group is found
               }
             }
-            console.log("🚀 ~ socket.on ~ patchedGroups:", patchedGroups)
+            // console.log("🚀 ~ socket.on ~ patchedGroups:", patchedGroups)
 
-            console.log("🚀 ~ socket.on ~ targetChannels:", targetChannels)
+            // console.log("🚀 ~ socket.on ~ targetChannels:", targetChannels)
 
             // 3. Iterate through all target channels (original + patched ones)
             for (const ch of targetChannels) {
               servers[ch].forEach((server_address) => {
-                console.log("🚀 ~ servers[ch].forEach ~ server_address:", server_address,members[ch])
+                // console.log("🚀 ~ servers[ch].forEach ~ server_address:", server_address,members[ch])
 
                 if(server_address == process.env.AUDIOSERVER_ADDR) {
                   members[ch].forEach((p) => {
@@ -574,27 +576,27 @@ function createSocket(p = 0) {
                       if (err) {
                         console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
                       } else {
-                        console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
+                        // console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
                       }
                     });
                   }
                 });
                 } else {
                   const [ip, p] = server_address.split(":");
-                  console.log("🚀 ~ members[packet.channel_id].forEach ~ ip, p:", ip, p)
+                  // console.log("🚀 ~ members[packet.channel_id].forEach ~ ip, p:", ip, p)
                   packet.channel_id=ch;
                   machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
                     if (err) {
                       console.error(`Failed to send to ${ip}:${p}`, err);
                     } else {
-                      console.log(`Forwarded packet to ${ip}:${p}`);
+                      // console.log(`Forwarded packet to ${ip}:${p}`);
                     }
                   })
                   }
               });
             }
           }
-        } catch ($e) {}
+        } catch ($e) { console.log($e); }
       });
       socket.on("close", () => {
         console.log(`UDP Socket on port ${port} closed`);
