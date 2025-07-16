@@ -69,7 +69,12 @@ app.get("/audio-server-port", async (req, res) => {
     const {socket, port} = await createSocket();
     await socket.close();
     delete udpSockets[port];
-    
+    console.log("Response sent to a requesting client", {
+      udp_port: port,
+      udp_host: host,
+      websocket_id: port,
+      aes_key: "eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1"
+    });
     res.json({
       udp_port: port,
       udp_host: host,
