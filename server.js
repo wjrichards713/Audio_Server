@@ -41,7 +41,7 @@ let serverPublicIP = null;
 const udpSockets = {}; // Stores UDP sockets indexed by user's websocket ID, eg: { 33055: Socket }
 const udpClients = {}; // Stores UDP client information (rinfo) indexed by user's websocket ID  { 33055: { port: 15000, address: 129.126.11.134 } }
 const servers = {}; // Tracks which servers are handling each channel { 555: ["35.90.120.85:3002"] }
-const members = {}; // Maps channel IDs to arrays of websocket IDs of connected users { 555: ["33055"] }
+const members = {}; // Maps channel IDs to arrays of websocket IDs of connected users { 555: ["33055"] } of this server only
 
 const app = express(); // Express application instance
 app.use(cors());
@@ -250,7 +250,7 @@ const subscriber = new Redis({
   port: process.env.REDIS_PORT,
   password: process.env.REDIS_PASS,
 });
-const activeRedisSubscriptions = new Set();
+const redis_channel_subscriptions = new Set();
 let patchedGroups =[];
 let patchedChannelSet = new Set(); // Tracks all channels that are currently patched
 
@@ -274,136 +274,179 @@ let patchedChannelSet = new Set(); // Tracks all channels that are currently pat
 })();
 
 
-subscriber.subscribe('servers');
+subscriber.subscribe('server_channel_sync');
 subscriber.subscribe('patched_info');
 
-subscriber.on("message", async (channel_id, data) => {
-  if(channel_id == 'servers') {
-    // console.log("Global Redis Message", {channel_id, data});
-    const channel_servers = await redis.smembers("server_"+data);
-    if(channel_servers && channel_servers.length) {
-      servers[data] = channel_servers;
-    } else {
-      delete servers[data];
-    }
-    return;
-  }
+subscriber.on("message", async (event_name, data) => {
 
-  if (channel_id == 'patched_info') {
-    const groupData = await redis.get("patched_groups");
-    if (groupData) {
-      patchedGroups = JSON.parse(groupData);
-    }
-    // console.log("🚀 ~ patchedGroups:", patchedGroups)
-    const {type,channels}  = JSON.parse(data);
-    const sortedNew = [...channels].sort();
-    if(type==="PATCH"){
-      const users_connected_set = new Set();
-      for (const ch of sortedNew) {
-        const memberData = await redis.hvals("member_" + ch);
-        // console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
-        memberData.map(JSON.parse).forEach(item => users_connected_set.add(item.user_name));
+  switch (event_name) {
+    case 'server_channel_sync': {
+      const channel_id = data;
+      const channel_servers = await redis.smembers(`${channel_id}_servers`);
+      if(channel_servers && channel_servers.length) {
+        servers[channel_id] = channel_servers;
+      } else {
+        delete servers[channel_id];
       }
-      const users_connected = [...users_connected_set];
-      // console.log("🚀 ~ subscriber.on ~ users_connected:", users_connected)
-      for (const ch of sortedNew) {
-        if (members[ch]) {
-          wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN && members[ch].includes(client.websocketId)) {
-              client.send(JSON.stringify({ channel_id: ch, users_connected:  users_connected }));
+      return;
+    }
+    default: {
+      const channel_id = event_name;
+      const {message, websocketId} = JSON.parse(data);
+      if(message.connect) {
+        const users_connected = [...new Set((await redis.hvals(`${channel_id}_members`)).map(JSON.parse))];
+        wss.clients.forEach((client) => {
+          if(client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId)) {
+            if(client.websocketId != websocketId) {
+              client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
+            } else {
+              client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
             }
-          });
-        }
-      }
-      // console.log("Added new patched group:", sortedNew);
-
-    }else if (type === "UNPATCH") {
-      // Remove group
-      for (const ch of sortedNew) {
-        const users = new Set();
-        const memberData = await redis.hvals("member_" + ch);
-        memberData.map(JSON.parse).forEach(item => users.add(item.user_name));
-        const users_connected = [...users];
-    
-        if (members[ch]) {
-          wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN && members[ch].includes(client.websocketId)) {
-              client.send(JSON.stringify({
-                channel_id: ch,
-                users_connected : users_connected, // only users of this specific channel
-              }));
-            }
-          });
-        }
-      }
-      // console.log("Removed patched group:", sortedNew);
-    }
-    return;
-  }
-
-  const {message, websocketId} = JSON.parse(data);
-  // console.log("Redis Message", {message, websocketId});
-
-  let targetChannels = [channel_id];
-  // 2. Check if it's part of a patched group
-  for (const group of patchedGroups) {
-    if (group.includes(channel_id)) {
-      targetChannels = group;
-      break; // Exit loop once the group is found
-    }
-  }
-  const users_connected_set = new Set();
-  for (const ch of targetChannels) {
-    patchedChannelSet.add(ch);
-    const memberData = await redis.hvals("member_" + ch);
-    // console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
-    memberData.map(JSON.parse).forEach(item => users_connected_set.add(item.user_name));
-  }
-  const users_connected = [...users_connected_set];
-  if(message.connect) {
-    // const users_connected = [...new Set((await redis.hvals("member_" + channel_id)).map(JSON.parse).map(item => item.user))];
-    for (const ch of targetChannels) {
-      wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN && members[ch]?.includes(client.websocketId)) {
-          if(client.websocketId != websocketId) {
-            // client.send(JSON.stringify({...message, channel_id}));
-            client.send(JSON.stringify({ ch, users_connected: users_connected }));
-          } else {
-            client.send(JSON.stringify({ ch, users_connected: users_connected }));
           }
-        }
-      });
-    }
-  } else if (message.disconnect) {
-      for (const ch of targetChannels) {
-        if(members[ch]) {
+        })
+        return;
+      }
+      if(message.disconnect) {
+        if(members[channel_id].length) {
           wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN && members[ch]?.includes(client.websocketId) && client.websocketId != websocketId) {
-              // client.send(JSON.stringify(message));
+            if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
               client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
             }
           });
         } else {
-          // console.log("Unsubscribing, ", channel_id);
-          const serverAddress = `${serverPublicIP}:3002`; // 3002 is the machine socket port
-          await redis.srem("server_"+channel_id, serverAddress);
+          console.log("Unsubscribing, ", channel_id);
+          await redis.srem(`${channel_id}_servers`, `${serverPublicIP}:3002`);
           await subscriber.unsubscribe(channel_id);
-          await publisher.publish('servers', channel_id);
-          activeRedisSubscriptions.delete(channel_id);
+          await publisher.publish('server_exited_channel', channel_id);
+          redis_channel_subscriptions.delete(channel_id);
           delete members[channel_id];
+          delete servers[channel_id];
         }
+      } else {
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
+            client.send(JSON.stringify(message));
+          }
+        });
       }
-    } else if(channel_id) {
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN && members[channel_id]?.includes(client.websocketId) && client.websocketId != websocketId) {
-        client.send(JSON.stringify(message));
-      }
-    });
+    }
   }
+
+  // if (channel_id == 'patched_info') {
+  //   const groupData = await redis.get("patched_groups");
+  //   if (groupData) {
+  //     patchedGroups = JSON.parse(groupData);
+  //   }
+  //   // console.log("🚀 ~ patchedGroups:", patchedGroups)
+  //   const {type,channels}  = JSON.parse(data);
+  //   const sortedNew = [...channels].sort();
+  //   if(type==="PATCH"){
+  //     const users_connected_set = new Set();
+  //     for (const ch of sortedNew) {
+  //       const memberData = await redis.hvals("member_" + ch);
+  //       // console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
+  //       memberData.map(JSON.parse).forEach(item => users_connected_set.add(item.user_name));
+  //     }
+  //     const users_connected = [...users_connected_set];
+  //     // console.log("🚀 ~ subscriber.on ~ users_connected:", users_connected)
+  //     for (const ch of sortedNew) {
+  //       if (members[ch]) {
+  //         wss.clients.forEach((client) => {
+  //           if (client.readyState === WebSocket.OPEN && members[ch].includes(client.websocketId)) {
+  //             client.send(JSON.stringify({ channel_id: ch, users_connected:  users_connected }));
+  //           }
+  //         });
+  //       }
+  //     }
+  //     // console.log("Added new patched group:", sortedNew);
+
+  //   }else if (type === "UNPATCH") {
+  //     // Remove group
+  //     for (const ch of sortedNew) {
+  //       const users = new Set();
+  //       const memberData = await redis.hvals("member_" + ch);
+  //       memberData.map(JSON.parse).forEach(item => users.add(item.user_name));
+  //       const users_connected = [...users];
+    
+  //       if (members[ch]) {
+  //         wss.clients.forEach((client) => {
+  //           if (client.readyState === WebSocket.OPEN && members[ch].includes(client.websocketId)) {
+  //             client.send(JSON.stringify({
+  //               channel_id: ch,
+  //               users_connected : users_connected, // only users of this specific channel
+  //             }));
+  //           }
+  //         });
+  //       }
+  //     }
+  //     // console.log("Removed patched group:", sortedNew);
+  //   }
+  //   return;
+  // }
+
+  // const {message, websocketId} = JSON.parse(data);
+  // // console.log("Redis Message", {message, websocketId});
+
+  // let targetChannels = [channel_id];
+  // // 2. Check if it's part of a patched group
+  // for (const group of patchedGroups) {
+  //   if (group.includes(channel_id)) {
+  //     targetChannels = group;
+  //     break; // Exit loop once the group is found
+  //   }
+  // }
+  // const users_connected_set = new Set();
+  // for (const ch of targetChannels) {
+  //   patchedChannelSet.add(ch);
+  //   const memberData = await redis.hvals("member_" + ch);
+  //   // console.log("🚀 ~ subscriber.on ~ memberData:", memberData)
+  //   memberData.map(JSON.parse).forEach(item => users_connected_set.add(item.user_name));
+  // }
+  // const users_connected = [...users_connected_set];
+  // if(message.connect) {
+  //   // const users_connected = [...new Set((await redis.hvals("member_" + channel_id)).map(JSON.parse).map(item => item.user))];
+  //   for (const ch of targetChannels) {
+  //     wss.clients.forEach((client) => {
+  //       if (client.readyState === WebSocket.OPEN && members[ch]?.includes(client.websocketId)) {
+  //         if(client.websocketId != websocketId) {
+  //           // client.send(JSON.stringify({...message, channel_id}));
+  //           client.send(JSON.stringify({ ch, users_connected: users_connected }));
+  //         } else {
+  //           client.send(JSON.stringify({ ch, users_connected: users_connected }));
+  //         }
+  //       }
+  //     });
+  //   }
+  // } else if (message.disconnect) {
+  //     for (const ch of targetChannels) {
+  //       if(members[ch]) {
+  //         wss.clients.forEach((client) => {
+  //           if (client.readyState === WebSocket.OPEN && members[ch]?.includes(client.websocketId) && client.websocketId != websocketId) {
+  //             // client.send(JSON.stringify(message));
+  //             client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
+  //           }
+  //         });
+  //       } else {
+  //         // console.log("Unsubscribing, ", channel_id);
+  //         const serverAddress = `${serverPublicIP}:3002`; // 3002 is the machine socket port
+  //         await redis.srem("server_"+channel_id, serverAddress);
+  //         await subscriber.unsubscribe(channel_id);
+  //         await publisher.publish('servers', channel_id);
+  //         activeRedisSubscriptions.delete(channel_id);
+  //         delete members[channel_id];
+  //       }
+  //     }
+  //   } else if(channel_id) {
+  //   wss.clients.forEach((client) => {
+  //     if (client.readyState === WebSocket.OPEN && members[channel_id]?.includes(client.websocketId) && client.websocketId != websocketId) {
+  //       client.send(JSON.stringify(message));
+  //     }
+  //   });
+  // }
 });
+
 async function getChannel(channelId) {
   const raw = await redis.hget('channels', channelId);
-  console.log(raw);
   return raw ? JSON.parse(raw) : null;
 }
 async function savePatchedDataToRedis() {
@@ -428,46 +471,40 @@ wss.on('connection', async (socket, req) => {
     await createSocket(websocketId);
   }
   socket.on('message', async (message) => {
-    console.log("WSS:", message);
     message = message instanceof Buffer ? message.toString('utf-8') : message;
-
     console.log("WSS:", message);
     try {
       message = JSON.parse(message);
       if(message.connect) {
-        const {channel_id} = message.connect;
+        const { channel_id } = message.connect;
         if(!await getChannel(channel_id)) {
           console.log(`User ${websocketId} tried to connect to ${channel_id} but channel is not yet registered`);
+          socket.send(JSON.stringify({
+            error: true,
+            message: `Channel ${channel_id} does not exist`,
+            code: "CHANNEL_NOT_FOUND"
+          }));
           return;
         }
-        // console.log("got channel");
         try {
           udpSockets[websocketId].address();
         } catch ($e) {
           await createSocket(websocketId);
         }
-        members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId]; // update members to have new user added, members contains socket ids of this server only
-        // Use the server's public IP address instead of AUDIOSERVER_ADDR
-        // console.log("-------------",members[channel_id] )
-        const serverAddress = `${serverPublicIP}:3002`; // 3002 is the machine socket port
-        await redis.hset("member_" + channel_id, `${serverPublicIP}:${websocketId}`, JSON.stringify(message.connect));
-        await redis.sadd("server_" + channel_id, serverAddress);
-        await publisher.publish('servers', channel_id); // inform all servers about the update has been made
-        if (!activeRedisSubscriptions.has(channel_id)) {
+        members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
+        await redis.hset(`${channel_id}_members`, `${serverPublicIP}:${websocketId}`, JSON.stringify(message.connect));
+        await redis.sadd(`${channel_id}_servers`, `${serverPublicIP}:3002`);
+        await publisher.publish('server_channel_sync', channel_id);
+        if (!redis_channel_subscriptions.has(channel_id)) {
           await subscriber.subscribe(channel_id);
-          activeRedisSubscriptions.add(channel_id);
+          redis_channel_subscriptions.add(channel_id);
         }
-        await publisher.publish(channel_id, JSON.stringify({message, websocketId})); // broadcast the message as it is to all servers, so other clients will get it
-
+        await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
       } else if(message.disconnect) {
-        const {channel_id} = message.disconnect;
+        const { channel_id } = message.disconnect;
         members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
-        await redis.hdel(
-          "member_" + channel_id,
-          `${serverPublicIP}:${websocketId}`
-        );
+        await redis.hdel(`${channel_id}_members`, `${serverPublicIP}:${websocketId}`);
         publisher.publish(channel_id, JSON.stringify({message, websocketId}));
-
       } else {
         for (const key in message) {
           if (Object.prototype.hasOwnProperty.call(message, key)) {
