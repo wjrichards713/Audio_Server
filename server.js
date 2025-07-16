@@ -220,6 +220,9 @@ app.get('/system-stats', (req, res) => {
     uptime: os.uptime() + ' seconds'
   });
 });
+app.get('/health', (req, res) => {
+  res.json(true);
+})
 app.listen(3000, () => {
   console.log(`Express API running on http://localhost:3000`);
 });
