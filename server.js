@@ -428,10 +428,12 @@ wss.on('connection', async (socket, req) => {
     await createSocket(websocketId);
   }
   socket.on('message', async (message) => {
+    console.log("WSS:", message);
     message = message instanceof Buffer ? message.toString('utf-8') : message;
+
+    console.log("WSS:", message);
     try {
       message = JSON.parse(message);
-      console.log("WSS:", message);
       if(message.connect) {
         const {channel_id} = message.connect;
         if(!await getChannel(channel_id)) {
