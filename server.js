@@ -418,6 +418,9 @@ wss.on('connection', async (socket, req) => {
   const queryParams = new URL(`http://localhost${req.url}`).searchParams;
   const websocketId = queryParams.get('websocket_id');
   socket.websocketId = websocketId; // TODO remove this line not needed
+  setInterval(() => {
+    socket.send({});
+  }, 50000);
   try {
     udpSockets[websocketId].address();
   } catch ($e) {
