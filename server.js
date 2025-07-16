@@ -586,9 +586,24 @@ function createSocket(p = 0) {
         udpClients[port] = rinfo;
         try {
           const packet = JSON.parse(msg.toString('utf-8'));
-          if (packet.channel_id) {
+          if (packet.channel_id && servers[packet.channel_id] && servers[packet.channel_id].length) {
             servers[packet.channel_id].forEach((server_address) => {
-              console.log(server_address);
+              if(server_address === `${serverPublicIP}:3002`) {
+                console.log(members);
+                members[packet.channel_id].forEach((p) => {
+                  if(p != port && udpSockets[p] && udpClients[p]) {
+                    udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
+                      if (err) {
+                        console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
+                      } else {
+                        console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
+                      }
+                    });
+                  }
+                });
+              } else {
+
+              }
               // if(server_address == process.env.AUDIOSERVER_ADDR) {
               //   members[ch].forEach((p) => {
               //   // if(p != port && udpSockets[p] && udpClients[p]) {
