@@ -308,6 +308,7 @@ subscriber.on("message", async (event_name, data) => {
       }
       if(message.disconnect) {
         if(members[channel_id].length) {
+          const users_connected = [...new Set((await redis.hvals(`${channel_id}_members`)).map(JSON.parse))];
           wss.clients.forEach((client) => {
             if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
               client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
