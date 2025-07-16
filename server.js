@@ -545,9 +545,7 @@ function createSocket(p = 0) {
         }, 30000);
       }
       udpSockets[port] = socket;
-      // console.log("🚀 ~ socket.bind ~ udpSockets:", udpSockets)
-
-      // console.log(`UDP Socket listening on port ${port}`);
+      console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
         
         // console.log(rinfo, msg.toString('utf-8'), servers);
@@ -612,6 +610,7 @@ function createSocket(p = 0) {
         delete udpClients[port];
         clearTimeout(timeout);
       });
+      socket.on("")
       reinitTimeout();
       resolve({socket, port});
     });
