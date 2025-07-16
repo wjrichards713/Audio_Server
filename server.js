@@ -610,7 +610,6 @@ function createSocket(p = 0) {
         delete udpClients[port];
         clearTimeout(timeout);
       });
-      socket.on("")
       reinitTimeout();
       resolve({socket, port});
     });
