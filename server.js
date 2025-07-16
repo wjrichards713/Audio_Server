@@ -542,7 +542,6 @@ machineSocket.bind(3002, () => {
   machineSocket.on("message", (data, rinfo) => {
     try {
       const {packet, port} = JSON.parse(data.toString('utf-8'));
-      console.log(packet);
       if (packet.channel_id && members[packet.channel_id]) {
         members[packet.channel_id].forEach((p) => {
           if(p != port && udpSockets[p] && udpClients[p]) {
