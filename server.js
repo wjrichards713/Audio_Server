@@ -524,17 +524,15 @@ wss.on('connection', async (socket, req) => {
     channels.forEach(async (channel_id) => {
       if(members[channel_id].includes(websocketId)) {
         members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
-        const user = JSON.parse(await redis.hget("member_" + channel_id, `${serverPublicIP}:${websocketId}`));
-        await redis.hdel(
-          "member_" + channel_id,
-          `${serverPublicIP}:${websocketId}`
-        );
+        const user = JSON.parse(await redis.hget(`${channel_id}_members`, `${serverPublicIP}:${websocketId}`));
+        await redis.hdel(`${channel_id}_members`, `${serverPublicIP}:${websocketId}`);
         publisher.publish(channel_id, JSON.stringify({message: {disconnect: {...user, channel_id}}, websocketId}));
       }
     });
     udpSockets[websocketId] && udpSockets[websocketId].close();
   });
 });
+
 const machineSocket = dgram.createSocket("udp4");
 machineSocket.bind(3002, () => {
   const {port} = machineSocket.address();
