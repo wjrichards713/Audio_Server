@@ -419,7 +419,7 @@ wss.on('connection', async (socket, req) => {
   const websocketId = queryParams.get('websocket_id');
   socket.websocketId = websocketId; // TODO remove this line not needed
   setInterval(() => {
-    socket.send(true);
+    socket.send([]);
   }, 50000);
   try {
     udpSockets[websocketId].address();
