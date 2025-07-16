@@ -590,7 +590,7 @@ function createSocket(p = 0) {
             servers[packet.channel_id].forEach((server_address) => {
               if(server_address === `${serverPublicIP}:3002`) {
                 members[packet.channel_id].forEach((p) => {
-                  if(udpSockets[p] && udpClients[p]) {
+                  if(p != port && udpSockets[p] && udpClients[p]) {
                     udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
                       if (err) {
                         console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
