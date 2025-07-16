@@ -499,6 +499,7 @@ wss.on('connection', async (socket, req) => {
           await subscriber.subscribe(channel_id);
           redis_channel_subscriptions.add(channel_id);
         }
+        delete message.connect.channel_id;
         await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
       } else if(message.disconnect) {
         const { channel_id } = message.disconnect;
