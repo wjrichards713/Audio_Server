@@ -306,13 +306,11 @@
         }
 
         async function fetchUdpPort() {
-            const response = await fetch('/audio-server-port');
-            const data = await response.json();
-            document.getElementById("wss").value = `wss://${location.hostname}/ws/?websocket_id=${data.websocket_id}`;
-            document.getElementById("host").value = data.udp_host;
-            document.getElementById("port").value = data.udp_port;
-            console.log(data);
-            return data;
+            // const response = await fetch('/audio-server-port');
+            // const data = await response.json();
+            document.getElementById("wss").value = `wss://${location.hostname}/ws/`;
+            // console.log(data);
+            // return data;
         }
 
         async function connectWebsocket() {
@@ -336,7 +334,10 @@
                 }
                 try {
                     const msg = JSON.parse(event.data);
-                    if(msg.transmit_started) {
+                    if(message.udp_host && message.udp_port) {
+                        document.getElementById("host").value = message.udp_host;
+                        document.getElementById("port").value = message.udp_port;
+                    } else if(msg.transmit_started) {
                         document.getElementById('startBtn' + msg.transmit_started.channel_id).classList.add('hidden');
                     } else if(msg.transmit_ended) {
                         document.getElementById('startBtn' + msg.transmit_ended.channel_id).classList.remove('hidden');

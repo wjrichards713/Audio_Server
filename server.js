@@ -46,46 +46,46 @@ const members = {}; // Maps channel IDs to arrays of websocket IDs of connected 
 const app = express(); // Express application instance
 app.use(cors());
 app.use(express.static('client'));
-app.get("/audio-server-port", async (req, res) => {
-  try {
-    // Get server's public IP address
-    let host;
+// app.get("/audio-server-port", async (req, res) => {
+//   try {
+//     // Get server's public IP address
+//     let host;
     
-    // Use cached IP or fetch a new one
-    if (serverPublicIP) {
-      host = serverPublicIP;
-    } else {
-      try {
-        host = await getPublicIP();
-        serverPublicIP = host; // Cache the IP for future use
-        // console.log(`Detected public IP: ${host}`);
-      } catch (ipError) {
-        console.error("Error detecting public IP:", ipError);
-        // If external service fails, use a placeholder and let client know
-        host = 'auto'; // Special value indicating client should auto-detect
-      }
-    }
+//     // Use cached IP or fetch a new one
+//     if (serverPublicIP) {
+//       host = serverPublicIP;
+//     } else {
+//       try {
+//         host = await getPublicIP();
+//         serverPublicIP = host; // Cache the IP for future use
+//         // console.log(`Detected public IP: ${host}`);
+//       } catch (ipError) {
+//         console.error("Error detecting public IP:", ipError);
+//         // If external service fails, use a placeholder and let client know
+//         host = 'auto'; // Special value indicating client should auto-detect
+//       }
+//     }
     
-    const {socket, port} = await createSocket();
-    await socket.close();
-    delete udpSockets[port];
-    console.log("Response sent to a requesting client", {
-      udp_port: port,
-      udp_host: host,
-      websocket_id: port,
-      aes_key: "eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1"
-    });
-    res.json({
-      udp_port: port,
-      udp_host: host,
-      websocket_id: port,
-      aes_key: "eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1"
-    });
-  } catch (err) {
-    console.error("Error getting available port:", err);
-    res.status(500).json({ error: "Failed to retrieve an available port." });
-  }
-});
+//     const {socket, port} = await createSocket();
+//     await socket.close();
+//     delete udpSockets[port];
+//     console.log("Response sent to a requesting client", {
+//       udp_port: port,
+//       udp_host: host,
+//       websocket_id: port,
+//       aes_key: "eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1"
+//     });
+//     res.json({
+//       udp_port: port,
+//       udp_host: host,
+//       websocket_id: port,
+//       aes_key: "eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1eyJhbGciOiJIUzI1"
+//     });
+//   } catch (err) {
+//     console.error("Error getting available port:", err);
+//     res.status(500).json({ error: "Failed to retrieve an available port." });
+//   }
+// });
 app.get("/audio-server-connected-users", async (req, res) => {
   try {
     const keys = await redis.keys("member_*");
@@ -460,12 +460,24 @@ async function savePatchedDataToRedis() {
 
 wss.on('connection', async (socket, req) => {
   console.log('WebSocket User Connected', req.url);
-  const queryParams = new URL(`http://localhost${req.url}`).searchParams;
-  const websocketId = queryParams.get('websocket_id');
-  socket.websocketId = websocketId; // TODO remove this line not needed
+  try {
+    serverPublicIP = await getPublicIP();
+  } catch ($e) {
+    console.error("Error detecting public IP:", $e);
+    socket.close();
+    return;
+  }
+  const {socket: udpSocket, port: websocketId} = await createSocket();
+  socket.websocketId = websocketId;
   setInterval(() => {
     socket.send([]);
   }, 50000);
+  socket.send(JSON.stringify({
+    udp_port: websocketId,
+    udp_host: serverPublicIP,
+    websocket_id: websocketId,
+    aes_key: "N/A"
+  }));
   try {
     udpSockets[websocketId].address();
   } catch ($e) {
