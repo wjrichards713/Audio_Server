@@ -334,9 +334,9 @@
                 }
                 try {
                     const msg = JSON.parse(event.data);
-                    if(message.udp_host && message.udp_port) {
-                        document.getElementById("host").value = message.udp_host;
-                        document.getElementById("port").value = message.udp_port;
+                    if(msg.udp_host && msg.udp_port) {
+                        document.getElementById("host").value = msg.udp_host;
+                        document.getElementById("port").value = msg.udp_port;
                     } else if(msg.transmit_started) {
                         document.getElementById('startBtn' + msg.transmit_started.channel_id).classList.add('hidden');
                     } else if(msg.transmit_ended) {
