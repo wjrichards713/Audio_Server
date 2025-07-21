@@ -118,6 +118,8 @@
         let audioDecoders = new Map();
         let selectedMicrophoneId = '';
         let selectedSpeakerId = '';
+        let mediaRecorder = null;
+        let recordedChunks = [];
 
         // Initialize device selection on page load
         document.addEventListener('DOMContentLoaded', () => {
@@ -491,6 +493,40 @@
                     audio: audioConstraints
                 });
                 
+                // Start recording automatically
+                recordedChunks = [];
+                mediaRecorder = new MediaRecorder(mediaStream, {
+                    mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
+                });
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const filename = `outgoing-audio-${channel}-${timestamp}.webm`;
+                    
+                    // Send recorded audio to electron API
+                    const reader = new FileReader();
+                    reader.onload = function() {
+                        window.electronAPI.recorded({
+                            channel: channel,
+                            filename: filename,
+                            data: reader.result,
+                            mimeType: mediaRecorder.mimeType
+                        });
+                    };
+                    reader.readAsArrayBuffer(blob);
+                    
+                    console.log(`Recording sent to electron: ${filename}`);
+                };
+                
+                mediaRecorder.start(100); // Record in 100ms chunks
+                
                 audioContext = new AudioContext();
                 const source = audioContext.createMediaStreamSource(mediaStream);
 
@@ -531,6 +567,12 @@
         }
 
         function stopAudio(channel) {
+            // Stop recording
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder = null;
+            }
+            
             if (audioContext) {
                 audioContext.close().then(() => {
                     console.log('Audio context closed.')
