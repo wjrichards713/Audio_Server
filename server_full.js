@@ -1,0 +1,578 @@
+const dgram = require("dgram");
+const WebSocket = require('ws');
+const express = require('express');
+const cors = require("cors");
+const https = require('https');
+const os = require('os');
+const Redis = require("ioredis");
+require('dotenv').config();
+
+// Promise-based HTTP request to get public IP
+const getPublicIP = () => {
+  return new Promise((resolve, reject) => {
+    https.get('https://api.ipify.org', (response) => {
+      let data = '';
+      response.on('data', (chunk) => {
+        data += chunk;
+      });
+      response.on('end', () => {
+        resolve(data.trim());
+      });
+    }).on('error', (err) => {
+      reject(err);
+    });
+  });
+};
+
+// Store server's public IP
+let serverPublicIP = null;
+// Initialize server's public IP at startup
+(async () => {
+  try {
+    serverPublicIP = await getPublicIP();
+    console.log(`Server's public IP initialized: ${serverPublicIP}`);
+  } catch (err) {
+    console.error("Failed to initialize server's public IP:", err);
+    // Use a fallback or let services fail gracefully
+  }
+})();
+
+// Global data structures for managing connections and server state
+const udpSockets = {}; // Stores UDP sockets indexed by user's websocket ID, eg: { 33055: Socket }
+const udpClients = {}; // Stores UDP client information (rinfo) indexed by user's websocket ID  { 33055: { port: 15000, address: 129.126.11.134 } }
+const servers = {}; // Tracks which servers are handling each channel { 555: ["35.90.120.85:3002"] }
+const members = {}; // Maps channel IDs to arrays of websocket IDs of connected users { 555: ["33055"] } of this server only
+
+const app = express(); // Express application instance
+app.use(cors());
+app.use(express.static('client'));
+app.get("/audio-server-connected-users", async (req, res) => {
+  try {
+    const keys = await redis.keys("member_*");
+    const users = {};
+    for (const key of keys) {
+      const channel_id = key.replace("member_", "");
+      const entries = await redis.hgetall(key);
+      const parsedEntries = Object.entries(entries).map(([socketId, value]) => ({
+        socketId,
+        channel_id,
+        ...JSON.parse(value)
+      }));
+      users[channel_id] = parsedEntries;
+    }
+    res.json({ udpSockets, members, udpClients, users, servers });
+  } catch (err) {
+    res.json([]);
+  }
+});
+// Add these routes to your Express app
+
+// Middleware to parse JSON requests
+app.use(express.json());
+
+// GET all channels
+app.get("/channels", async (req, res) => {
+  try {
+    const channels = await redis.hgetall('channels');
+    
+    // Parse the JSON values in the hash
+    const parsedChannels = {};
+    for (const [channelId, channelData] of Object.entries(channels)) {
+      parsedChannels[channelId] = JSON.parse(channelData);
+    }
+    
+    res.json(parsedChannels);
+  } catch (err) {
+    console.error("Error fetching channels:", err);
+    res.status(500).json({ error: "Failed to retrieve channels" });
+  }
+});
+app.get('/patched-groups', (req, res) => {
+  res.json({ groups: patchedGroups });
+});
+
+// GET a single channel
+app.get("/channels/:channelId", async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const channel = await getChannel(channelId);
+    
+    if (!channel) {
+      return res.status(404).json({ error: "Channel not found" });
+    }
+    
+    res.json(channel);
+  } catch (err) {
+    console.error("Error fetching channel:", err);
+    res.status(500).json({ error: "Failed to retrieve channel" });
+  }
+});
+
+// CREATE or UPDATE a channel
+app.post("/channels", async (req, res) => {
+  try {
+    const channelData = req.body;
+    // console.log("🚀 ~ app.post ~ channelData:", channelData)
+    
+    if (!channelData || !channelData.channel_id) {
+      return res.status(400).json({ error: "Missing required channel_id field" });
+    }
+    
+    const channelId = channelData.channel_id.toString();
+    
+    // Store the channel data
+    await redis.hset('channels', { [channelId]: JSON.stringify(channelData) });
+    
+    res.status(201).json({ 
+      message: "Channel created/updated successfully",
+      channel: channelData 
+    });
+  } catch (err) {
+    console.error("Error creating/updating channel:", err);
+    res.status(500).json({ error: "Failed to create/update channel" });
+  }
+});
+
+// DELETE a channel
+app.delete("/channels/:channelId", async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    
+    // Check if channel exists first
+    const channel = await getChannel(channelId);
+    if (!channel) {
+      return res.status(404).json({ error: "Channel not found" });
+    }
+    
+    // Delete the channel
+    await redis.hdel('channels', channelId);
+    
+    res.json({ 
+      message: "Channel deleted successfully",
+      channelId 
+    });
+  } catch (err) {
+    console.error("Error deleting channel:", err);
+    res.status(500).json({ error: "Failed to delete channel" });
+  }
+});
+
+// Endpoint for CPU and RAM usage
+app.get('/system-stats', (req, res) => {
+  const memoryUsage = {
+    total: (os.totalmem() / 1024 / 1024).toFixed(2) + ' MB',
+    free: (os.freemem() / 1024 / 1024).toFixed(2) + ' MB',
+    used: ((os.totalmem() - os.freemem()) / 1024 / 1024).toFixed(2) + ' MB',
+    usagePercent: ((1 - os.freemem() / os.totalmem()) * 100).toFixed(2) + '%'
+  };
+  
+  res.json({
+    cpu: function getCpuInfo() {
+      const cpus = os.cpus();
+      return cpus.map((core, index) => {
+        const total = Object.values(core.times).reduce((acc, tv) => acc + tv, 0);
+        const usage = ((total - core.times.idle) / total) * 100;
+
+        return {
+          core: index,
+          model: core.model,
+          speed: core.speed,
+          usage: usage.toFixed(2) + '%'
+        };
+      });
+    }(),
+    memory: memoryUsage,
+    uptime: os.uptime() + ' seconds'
+  });
+});
+app.get('/health', (req, res) => {
+  res.json(true);
+})
+app.listen(3000, () => {
+  console.log(`Express API running on http://localhost:3000`);
+});
+
+const wss = new WebSocket.Server({ port: 3001 }, () => {
+  console.log('WebSocket server started on ws://localhost:3001');
+});
+const redis = new Redis({
+  host: process.env.REDIS_HOST,
+  port: process.env.REDIS_PORT,
+  password: process.env.REDIS_PASS,
+});
+const publisher = new Redis({
+  host: process.env.REDIS_HOST,
+  port: process.env.REDIS_PORT,
+  password: process.env.REDIS_PASS,
+});
+const subscriber = new Redis({
+  host: process.env.REDIS_HOST,
+  port: process.env.REDIS_PORT,
+  password: process.env.REDIS_PASS,
+});
+const redis_channel_subscriptions = new Set();
+let patchedGroups =[];
+let patchedChannelSet = new Set(); // Tracks all channels that are currently patched
+
+(async () => {
+  try {
+    const groupData = await redis.get("patched_groups");
+    if (groupData) {
+      patchedGroups = JSON.parse(groupData);
+    }
+    // console.log("🚀 ~ patchedGroups:", patchedGroups)
+
+    const channels = await redis.smembers("patched_channel_set");
+    if (channels && channels.length > 0) {
+      patchedChannelSet = new Set(channels);
+    }
+
+    // console.log("✅ Patched data loaded from Redis:", patchedGroups);
+  } catch (err) {
+    console.error("❌ Failed to load patched data from Redis:", err);
+  }
+})();
+
+
+subscriber.subscribe('server_channel_sync');
+subscriber.subscribe('patched_info');
+
+subscriber.on("message", async (event_name, data) => {
+
+  switch (event_name) {
+    case 'server_channel_sync': {
+      const channel_id = data;
+      const channel_servers = await redis.smembers(`${channel_id}_servers`);
+      if(channel_servers && channel_servers.length) {
+        servers[channel_id] = channel_servers;
+      } else {
+        delete servers[channel_id];
+      }
+      return;
+    }
+    default: {
+      const channel_id = event_name;
+      const {message, websocketId} = JSON.parse(data);
+      if(message.connect) {
+        const users_connected = [...new Set((await redis.hvals(`${channel_id}_members`)).map(JSON.parse))];
+        wss.clients.forEach((client) => {
+          if(client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId)) {
+            if(client.websocketId != websocketId) {
+              client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
+            } else {
+              client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
+            }
+          }
+        })
+        return;
+      }
+      if(message.disconnect) {
+        if(members[channel_id].length) {
+          const users_connected = [...new Set((await redis.hvals(`${channel_id}_members`)).map(JSON.parse))];
+          wss.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
+              client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
+            }
+          });
+        } else {
+          console.log("Unsubscribing, ", channel_id);
+          await redis.srem(`${channel_id}_servers`, `${serverPublicIP}:3002`);
+          await subscriber.unsubscribe(channel_id);
+          await publisher.publish('server_exited_channel', channel_id);
+          redis_channel_subscriptions.delete(channel_id);
+          delete members[channel_id];
+          delete servers[channel_id];
+        }
+      } else {
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
+            client.send(JSON.stringify(message));
+          }
+        });
+      }
+    }
+  }
+});
+
+async function getChannel(channelId) {
+  const raw = await redis.hget('channels', channelId);
+  return raw ? JSON.parse(raw) : null;
+}
+async function savePatchedDataToRedis() {
+  await redis.set("patched_groups", JSON.stringify(patchedGroups));
+  await redis.del("patched_channel_set");
+  if (patchedChannelSet.size > 0) {
+    await redis.sadd("patched_channel_set", [...patchedChannelSet]);
+  }
+}
+
+wss.on('connection', async (socket, req) => {
+  console.log('WebSocket User Connected', req.url);
+  try {
+    serverPublicIP = await getPublicIP();
+  } catch ($e) {
+    console.error("Error detecting public IP:", $e);
+    socket.close();
+    return;
+  }
+  const {socket: udpSocket, port: websocketId} = await createSocket();
+  socket.websocketId = websocketId;
+  setInterval(() => {
+    socket.send([]);
+  }, 50000);
+  socket.send(JSON.stringify({
+    udp_port: websocketId,
+    udp_host: serverPublicIP,
+    websocket_id: websocketId,
+    aes_key: "N/A"
+  }));
+  try {
+    udpSockets[websocketId].address();
+  } catch ($e) {
+    await createSocket(websocketId);
+  }
+  socket.on('message', async (message) => {
+    message = message instanceof Buffer ? message.toString('utf-8') : message;
+    console.log("WSS:", message);
+    try {
+      message = JSON.parse(message);
+      if(message.connect) {
+        const { channel_id } = message.connect;
+        delete message.connect.channel_id;
+        if(!await getChannel(channel_id)) {
+          console.log(`User ${websocketId} tried to connect to ${channel_id} but channel is not yet registered`);
+          socket.send(JSON.stringify({
+            error: true,
+            message: `Channel ${channel_id} does not exist`,
+            code: "CHANNEL_NOT_FOUND"
+          }));
+          return;
+        }
+        try {
+          udpSockets[websocketId].address();
+        } catch ($e) {
+          await createSocket(websocketId);
+        }
+        members[channel_id] = [...(members[channel_id] || []).filter((port) => port != websocketId), websocketId];
+        await redis.hset(`${channel_id}_members`, `${serverPublicIP}:${websocketId}`, JSON.stringify(message.connect));
+        await redis.sadd(`${channel_id}_servers`, `${serverPublicIP}:3002`);
+        await publisher.publish('server_channel_sync', channel_id);
+        if (!redis_channel_subscriptions.has(channel_id)) {
+          await subscriber.subscribe(channel_id);
+          redis_channel_subscriptions.add(channel_id);
+        }
+        await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+      } else if(message.disconnect) {
+        const { channel_id } = message.disconnect;
+        members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
+        await redis.hdel(`${channel_id}_members`, `${serverPublicIP}:${websocketId}`);
+        publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+      } else {
+        for (const key in message) {
+          if (Object.prototype.hasOwnProperty.call(message, key)) {
+            const {channel_id} = message[key];
+            publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+          }
+        }
+      }
+    } catch ($e) {
+      console.log($e);
+    }
+  });
+  socket.on('close', async (e) => {
+    console.log('WebSocket User Disconnected', req.url, e);
+    const channels = Object.keys(members);
+    channels.forEach(async (channel_id) => {
+      if(members[channel_id].includes(websocketId)) {
+        members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
+        const user = JSON.parse(await redis.hget(`${channel_id}_members`, `${serverPublicIP}:${websocketId}`));
+        await redis.hdel(`${channel_id}_members`, `${serverPublicIP}:${websocketId}`);
+        publisher.publish(channel_id, JSON.stringify({message: {disconnect: {...user, channel_id}}, websocketId}));
+      }
+    });
+    udpSockets[websocketId] && udpSockets[websocketId].close();
+  });
+});
+
+const machineSocket = dgram.createSocket("udp4");
+machineSocket.bind(3002, () => {
+  const {port} = machineSocket.address();
+  console.log(`Server Listening for InterConnected Servers on UDP ${port}`);
+  machineSocket.on('error', console.error);
+  machineSocket.on("message", (data, rinfo) => {
+    try {
+      const {packet, port} = JSON.parse(data.toString('utf-8'));
+      if (packet.channel_id && members[packet.channel_id]) {
+        members[packet.channel_id].forEach((p) => {
+          if(p != port && udpSockets[p] && udpClients[p]) {
+            udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
+              if (err) {
+                console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
+              } else {
+                console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
+              }
+            });
+          }
+        });
+      }
+    } catch ($e) {
+      console.log($e);
+    }
+  });
+});
+
+function createSocket(p = 0) {
+  return new Promise((resolve, reject) => {
+    const socket = dgram.createSocket("udp4");
+    socket.bind(p, () => {
+      const {port} = (socket.address());
+      p = port;
+      let timeout = null;
+      function reinitTimeout() {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          try {
+            socket.close();
+          } catch ($e) {
+            console.error($e);
+          }
+        }, 30000);
+      }
+      udpSockets[port] = socket;
+      console.log(`UDP Socket listening on port ${port}`);
+      socket.on("message", (msg, rinfo) => {
+        console.log(`Received Packet from ${port}`);
+        reinitTimeout();
+        udpClients[port] = rinfo;
+        try {
+          const packet = JSON.parse(msg.toString('utf-8'));
+          if (packet.channel_id && servers[packet.channel_id] && servers[packet.channel_id].length) {
+            servers[packet.channel_id].forEach((server_address) => {
+              if(server_address === `${serverPublicIP}:3002`) {
+                members[packet.channel_id].forEach((p) => {
+                  if(p != port && udpSockets[p] && udpClients[p]) {
+                    udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
+                      if (err) {
+                        console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
+                      } else {
+                        console.log(`Forwarded Packet to ${udpClients[p].address}:${udpClients[p].port}`);
+                      }
+                    });
+                  }
+                });
+              } else {
+                const [ip, p] = server_address.split(":");
+                machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
+                  if (err) {
+                    console.error(`Failed to send to ${ip}:${p}`, err);
+                  } else {
+                    console.log(`Forwarded Packet to ${ip}:${p}`);
+                  }
+                })
+              }
+            });
+          }
+        } catch ($e) { console.log($e); }
+      });
+      socket.on("close", () => {
+        console.log(`UDP Socket on port ${port} closed`);
+        delete udpSockets[port];
+        delete udpClients[port];
+        clearTimeout(timeout);
+      });
+      reinitTimeout();
+      resolve({socket, port});
+    });
+  });
+}
+
+function patchChannels(channels) {
+  
+  const mergedSet = new Set(channels);
+  const groupsToRemove = [];
+
+  // Find and merge overlapping groups
+  for (const group of patchedGroups) {
+    if (group.some(ch => mergedSet.has(ch))) {
+      for (const ch of group) mergedSet.add(ch);
+      groupsToRemove.push(group);
+    }
+  }
+
+  // Remove old groups that are merged
+  for (const group of groupsToRemove) {
+    const index = patchedGroups.indexOf(group);
+    if (index !== -1) patchedGroups.splice(index, 1);
+  }
+
+  // Add merged group
+  const mergedArray = Array.from(mergedSet);
+  patchedGroups.push(mergedArray);
+
+  // Update channel set
+  for (const ch of mergedArray) patchedChannelSet.add(ch);
+}
+
+function unpatchChannels(channelsToRemove) {
+  for (let i = patchedGroups.length - 1; i >= 0; i--) {
+    const group = patchedGroups[i];
+
+    // Remove requested channels from the group
+    const filtered = group.filter(ch => !channelsToRemove.includes(ch));
+
+    if (filtered.length <= 1) {
+      // Group is either empty or has only one channel — remove it
+      patchedGroups.splice(i, 1);
+    } else if (filtered.length !== group.length) {
+      // Group is still valid but has been updated
+      patchedGroups[i] = filtered;
+    }
+  }
+
+  // Rebuild patchedChannelSet from updated groups
+  patchedChannelSet.clear();
+  for (const group of patchedGroups) {
+    for (const ch of group) {
+      patchedChannelSet.add(ch);
+    }
+  }
+}
+
+
+
+app.post("/channels/patch", async (req, res) => {
+  const { channels  } = req.body;
+  if (!channels || channels.length < 2 ) {
+    return res.status(400).json({ error: "Provide at least two channels." });
+  }
+  patchChannels(channels);
+
+  try {
+    // update patchedGroups and patchedChannelSet...
+    await savePatchedDataToRedis();
+    await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
+
+
+    res.json({ message: "Channels patched successfully." });
+  } catch (err) {
+    console.error("Patch error:", err);
+    res.status(500).json({ error: "Patch failed." });
+  }
+});
+app.post("/channels/unpatch", async (req, res) => {
+  const { channels } = req.body;
+  if (!channels) {
+    return res.status(400).json({ error: "Provide channels to unmerge." });
+  }
+  unpatchChannels(channels);
+
+  try {
+    await savePatchedDataToRedis();
+    await publisher.publish("patched_info", JSON.stringify({"type": "UNPATCH", channels }));
+
+    res.json({ message: "Channels unpatched successfully." });
+  } catch (err) {
+    console.error("Unmerge error:", err);
+    res.status(500).json({ error: "Failed to unmerge." });
+  }
+});
