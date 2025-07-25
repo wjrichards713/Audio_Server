@@ -268,10 +268,15 @@ subscriber.on("message", async (event_name, data) => {
           ]));
         });
       } else if (type == 'UNPATCH') {
-        channels.forEach(async (channel) => {
-          patches[channel] = Array.from(new Set(
+        channels.forEach((channel) => {
+          const filtered = Array.from(new Set(
             (patches[channel] || []).filter(c => !channels.includes(c) || c === channel)
           ));
+          if (filtered.length > 0) {
+            patches[channel] = filtered;
+          } else {
+            delete patches[channel];
+          }
         });
       }
       redis.set('patches', JSON.stringify(patches));
