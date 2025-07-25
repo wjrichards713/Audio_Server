@@ -230,7 +230,7 @@ redis.on('ready', async () => {
         if (member.startsWith(serverPublicIP)) {
           await redis.srem(key, member);
           console.log(`Removed ${member} from ${key}`);
-          await publisher.publish('server_channel_sync', channel);
+          await publisher.publish('server_channel_sync', key.replace("_servers", ''));
         }
       }
     }
