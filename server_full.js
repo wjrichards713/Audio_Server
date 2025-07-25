@@ -61,7 +61,7 @@ app.get("/audio-server-connected-users", async (req, res) => {
       }));
       users[channel_id] = parsedEntries;
     }
-    res.json({ udpSockets, members, udpClients, users, servers });
+    res.json({ udpSockets, members, udpClients, users, servers, patches });
   } catch (err) {
     res.json([]);
   }
@@ -247,17 +247,32 @@ subscriber.on("message", async (event_name, data) => {
     case 'patchings': {
       const { type, channels } = JSON.parse(data);
       if(type == 'PATCH') {
-        channels.forEach(channel => {
+        channels.forEach(async (channel) => {
           patches[channel] = Array.from(new Set([
             ...(patches[channel] || []),
             ...channels
           ]));
+          await redis.sadd(`${channel}_servers`, `${serverPublicIP}:3002`);
+          await publisher.publish('server_channel_sync', channel);
+          if (!redis_channel_subscriptions.has(channel)) {
+            await subscriber.subscribe(channel);
+            redis_channel_subscriptions.add(channel);
+          }
         });
       } else if (type == 'UNPATCH') {
-        channels.forEach(channel => {
+        channels.forEach(async (channel) => {
           patches[channel] = Array.from(new Set(
             (patches[channel] || []).filter(c => !channels.includes(c) || c === channel)
           ));
+          if (members[channel].length) {} else {
+            console.log("Unsubscribing, ", channel);
+            await redis.srem(`${channel}_servers`, `${serverPublicIP}:3002`);
+            await subscriber.unsubscribe(channel);
+            await publisher.publish('server_exited_channel', channel);
+            redis_channel_subscriptions.delete(channel);
+            delete members[channel];
+            delete servers[channel];
+          }
         });
       }
       redis.set('patches', JSON.stringify(patches));
@@ -465,6 +480,8 @@ function createSocket(p = 0) {
                 });
               } else {
                 const [ip, p] = server_address.split(":");
+                patches[packet.channel_id]
+                packet.channel_id
                 machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
                   if (err) {
                     console.error(`Failed to send to ${ip}:${p}`, err);
