@@ -42,6 +42,7 @@ const udpSockets = {}; // Stores UDP sockets indexed by user's websocket ID, eg:
 const udpClients = {}; // Stores UDP client information (rinfo) indexed by user's websocket ID  { 33055: { port: 15000, address: 129.126.11.134 } }
 const servers = {}; // Tracks which servers are handling each channel { 555: ["35.90.120.85:3002"] }
 const members = {}; // Maps channel IDs to arrays of websocket IDs of connected users { 555: ["33055"] } of this server only
+const patches = {}; // Maps Pacthes like { 555: [555, 666] }
 
 const app = express(); // Express application instance
 app.use(cors());
@@ -74,21 +75,13 @@ app.use(express.json());
 app.get("/channels", async (req, res) => {
   try {
     const channels = await redis.hgetall('channels');
-    
-    // Parse the JSON values in the hash
-    const parsedChannels = {};
-    for (const [channelId, channelData] of Object.entries(channels)) {
-      parsedChannels[channelId] = JSON.parse(channelData);
-    }
-    
-    res.json(parsedChannels);
+    res.json(Object.fromEntries(
+      Object.entries(channels).map(([id, data]) => [id, JSON.parse(data)])
+    ));
   } catch (err) {
     console.error("Error fetching channels:", err);
     res.status(500).json({ error: "Failed to retrieve channels" });
   }
-});
-app.get('/patched-groups', (req, res) => {
-  res.json({ groups: patchedGroups });
 });
 
 // GET a single channel
@@ -111,21 +104,15 @@ app.get("/channels/:channelId", async (req, res) => {
 // CREATE or UPDATE a channel
 app.post("/channels", async (req, res) => {
   try {
-    const channelData = req.body;
-    // console.log("🚀 ~ app.post ~ channelData:", channelData)
-    
-    if (!channelData || !channelData.channel_id) {
+    if (!req.body?.channel_id) {
       return res.status(400).json({ error: "Missing required channel_id field" });
     }
-    
-    const channelId = channelData.channel_id.toString();
-    
-    // Store the channel data
-    await redis.hset('channels', { [channelId]: JSON.stringify(channelData) });
-    
-    res.status(201).json({ 
+    await redis.hset('channels', {
+      [req.body.channel_id.toString()]: JSON.stringify(req.body)
+    });
+    res.status(201).json({
       message: "Channel created/updated successfully",
-      channel: channelData 
+      channel: req.body
     });
   } catch (err) {
     console.error("Error creating/updating channel:", err);
@@ -211,34 +198,9 @@ const subscriber = new Redis({
   password: process.env.REDIS_PASS,
 });
 const redis_channel_subscriptions = new Set();
-let patchedGroups =[];
-let patchedChannelSet = new Set(); // Tracks all channels that are currently patched
-
-(async () => {
-  try {
-    const groupData = await redis.get("patched_groups");
-    if (groupData) {
-      patchedGroups = JSON.parse(groupData);
-    }
-    // console.log("🚀 ~ patchedGroups:", patchedGroups)
-
-    const channels = await redis.smembers("patched_channel_set");
-    if (channels && channels.length > 0) {
-      patchedChannelSet = new Set(channels);
-    }
-
-    // console.log("✅ Patched data loaded from Redis:", patchedGroups);
-  } catch (err) {
-    console.error("❌ Failed to load patched data from Redis:", err);
-  }
-})();
-
 
 subscriber.subscribe('server_channel_sync');
-subscriber.subscribe('patched_info');
-
 subscriber.on("message", async (event_name, data) => {
-
   switch (event_name) {
     case 'server_channel_sync': {
       const channel_id = data;
@@ -294,17 +256,7 @@ subscriber.on("message", async (event_name, data) => {
   }
 });
 
-async function getChannel(channelId) {
-  const raw = await redis.hget('channels', channelId);
-  return raw ? JSON.parse(raw) : null;
-}
-async function savePatchedDataToRedis() {
-  await redis.set("patched_groups", JSON.stringify(patchedGroups));
-  await redis.del("patched_channel_set");
-  if (patchedChannelSet.size > 0) {
-    await redis.sadd("patched_channel_set", [...patchedChannelSet]);
-  }
-}
+const getChannel = async (id) => JSON.parse(await redis.hget('channels', id) || 'null');
 
 wss.on('connection', async (socket, req) => {
   console.log('WebSocket User Connected', req.url);
@@ -486,73 +438,18 @@ function createSocket(p = 0) {
   });
 }
 
-function patchChannels(channels) {
-  
-  const mergedSet = new Set(channels);
-  const groupsToRemove = [];
-
-  // Find and merge overlapping groups
-  for (const group of patchedGroups) {
-    if (group.some(ch => mergedSet.has(ch))) {
-      for (const ch of group) mergedSet.add(ch);
-      groupsToRemove.push(group);
-    }
-  }
-
-  // Remove old groups that are merged
-  for (const group of groupsToRemove) {
-    const index = patchedGroups.indexOf(group);
-    if (index !== -1) patchedGroups.splice(index, 1);
-  }
-
-  // Add merged group
-  const mergedArray = Array.from(mergedSet);
-  patchedGroups.push(mergedArray);
-
-  // Update channel set
-  for (const ch of mergedArray) patchedChannelSet.add(ch);
-}
-
-function unpatchChannels(channelsToRemove) {
-  for (let i = patchedGroups.length - 1; i >= 0; i--) {
-    const group = patchedGroups[i];
-
-    // Remove requested channels from the group
-    const filtered = group.filter(ch => !channelsToRemove.includes(ch));
-
-    if (filtered.length <= 1) {
-      // Group is either empty or has only one channel — remove it
-      patchedGroups.splice(i, 1);
-    } else if (filtered.length !== group.length) {
-      // Group is still valid but has been updated
-      patchedGroups[i] = filtered;
-    }
-  }
-
-  // Rebuild patchedChannelSet from updated groups
-  patchedChannelSet.clear();
-  for (const group of patchedGroups) {
-    for (const ch of group) {
-      patchedChannelSet.add(ch);
-    }
-  }
-}
-
-
-
 app.post("/channels/patch", async (req, res) => {
   const { channels  } = req.body;
   if (!channels || channels.length < 2 ) {
     return res.status(400).json({ error: "Provide at least two channels." });
   }
-  patchChannels(channels);
-
   try {
-    // update patchedGroups and patchedChannelSet...
-    await savePatchedDataToRedis();
-    await publisher.publish("patched_info", JSON.stringify({"type": "PATCH", channels }));
-
-
+    channels.forEach(channel => {
+      patches[channel] = Array.from(new Set([
+        ...(patches[channel] || []),
+        ...channels
+      ]));
+    });
     res.json({ message: "Channels patched successfully." });
   } catch (err) {
     console.error("Patch error:", err);
@@ -561,18 +458,21 @@ app.post("/channels/patch", async (req, res) => {
 });
 app.post("/channels/unpatch", async (req, res) => {
   const { channels } = req.body;
-  if (!channels) {
+  if (!Array.isArray(channels) || channels.length === 0) {
     return res.status(400).json({ error: "Provide channels to unmerge." });
   }
-  unpatchChannels(channels);
-
   try {
-    await savePatchedDataToRedis();
-    await publisher.publish("patched_info", JSON.stringify({"type": "UNPATCH", channels }));
-
+    channels.forEach(channel => {
+      patches[channel] = Array.from(new Set(
+        (patches[channel] || []).filter(c => !channels.includes(c) || c === channel)
+      ));
+    });
     res.json({ message: "Channels unpatched successfully." });
   } catch (err) {
     console.error("Unmerge error:", err);
     res.status(500).json({ error: "Failed to unmerge." });
   }
+});
+app.get("/patches", async (req, res) => {
+  res.json(patches);
 });
