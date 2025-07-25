@@ -266,29 +266,12 @@ subscriber.on("message", async (event_name, data) => {
             ...(patches[channel] || []),
             ...channels
           ]));
-          // if (members[channel].length) {
-          //   await redis.sadd(`${channel}_servers`, `${serverPublicIP}:3002`);
-          //   await publisher.publish('server_channel_sync', channel);
-          //   if (!redis_channel_subscriptions.has(channel)) {
-          //     await subscriber.subscribe(channel);
-          //     redis_channel_subscriptions.add(channel);
-          //   }
-          // }
         });
       } else if (type == 'UNPATCH') {
         channels.forEach(async (channel) => {
           patches[channel] = Array.from(new Set(
             (patches[channel] || []).filter(c => !channels.includes(c) || c === channel)
           ));
-          // if (members[channel].length) {} else {
-          //   console.log("Unsubscribing, ", channel);
-          //   await redis.srem(`${channel}_servers`, `${serverPublicIP}:3002`);
-          //   await subscriber.unsubscribe(channel);
-          //   await publisher.publish('server_exited_channel', channel);
-          //   redis_channel_subscriptions.delete(channel);
-          //   delete members[channel];
-          //   delete servers[channel];
-          // }
         });
       }
       redis.set('patches', JSON.stringify(patches));
@@ -442,7 +425,7 @@ machineSocket.bind(3002, () => {
               if (err) {
                 console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
               } else {
-                console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
+                // console.log(`Forwarded packet to ${udpClients[p].address}:${udpClients[p].port}`);
               }
             });
           }
@@ -474,7 +457,7 @@ function createSocket(p = 0) {
       udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
-        console.log(`Received Packet from ${port}`);
+        // console.log(`Received Packet from ${port}`);
         reinitTimeout();
         udpClients[port] = rinfo;
         try {
@@ -491,7 +474,7 @@ function createSocket(p = 0) {
                         if (err) {
                           console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
                         } else {
-                          console.log(`Forwarded Packet to ${udpClients[p].address}:${udpClients[p].port}`);
+                          // console.log(`Forwarded Packet to ${udpClients[p].address}:${udpClients[p].port}`);
                         }
                       });
                     }
@@ -502,7 +485,7 @@ function createSocket(p = 0) {
                     if (err) {
                       console.error(`Failed to send to ${ip}:${p}`, err);
                     } else {
-                      console.log(`Forwarded Packet to ${ip}:${p}`);
+                      // console.log(`Forwarded Packet to ${ip}:${p}`);
                     }
                   })
                 }
