@@ -193,7 +193,9 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
           global.members[channel_id] = (global.members[channel_id] || []).filter((port) => port != websocketId);
           const user = JSON.parse(await redis.hget(`${channel_id}_members`, `${global.serverPublicIP}:${websocketId}`));
           await redis.hdel(`${channel_id}_members`, `${global.serverPublicIP}:${websocketId}`);
-          publisher.publish(channel_id, JSON.stringify({message: {disconnect: {...user, channel_id}}, websocketId}));
+          (global.patches[channel_id] || [channel_id]).forEach(async (channel_id) => {
+            publisher.publish(channel_id, JSON.stringify({message: {disconnect: {...user, channel_id}}, websocketId}));
+          })
         }
       });
       global.udpSockets[websocketId] && global.udpSockets[websocketId].close();
