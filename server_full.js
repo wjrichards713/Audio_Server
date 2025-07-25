@@ -271,11 +271,7 @@ subscriber.on("message", async (event_name, data) => {
         wss.clients.forEach((client) => {
           channels.forEach((channel_id) => {
             if(client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId)) {
-              if(client.websocketId != websocketId) {
-                client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
-              } else {
-                client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
-              }
+              client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
             }
           });
         });
@@ -290,11 +286,7 @@ subscriber.on("message", async (event_name, data) => {
             wss.clients.forEach((client) => {
               patches[channel].forEach((channel_id) => {
                 if(client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId)) {
-                  if(client.websocketId != websocketId) {
-                    client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
-                  } else {
-                    client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
-                  }
+                  client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
                 }
               });
             });
