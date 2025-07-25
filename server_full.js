@@ -209,6 +209,7 @@ redis.on('ready', async () => {
     Object.assign(patches, parsed);
   }
   const keys = await redis.keys('*');
+  serverPublicIP = await getPublicIP();
   for (const key of keys) {
     console.log(key);
     if (key.endsWith('_servers')) {
