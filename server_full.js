@@ -217,6 +217,7 @@ redis.on('ready', async () => {
         if (member.startsWith(serverPublicIP)) {
           await redis.srem(key, member);
           console.log(`Removed ${member} from ${key}`);
+          await publisher.publish('server_channel_sync', channel);
         }
       }
     }
@@ -252,27 +253,29 @@ subscriber.on("message", async (event_name, data) => {
             ...(patches[channel] || []),
             ...channels
           ]));
-          await redis.sadd(`${channel}_servers`, `${serverPublicIP}:3002`);
-          await publisher.publish('server_channel_sync', channel);
-          if (!redis_channel_subscriptions.has(channel)) {
-            await subscriber.subscribe(channel);
-            redis_channel_subscriptions.add(channel);
-          }
+          // if (members[channel].length) {
+          //   await redis.sadd(`${channel}_servers`, `${serverPublicIP}:3002`);
+          //   await publisher.publish('server_channel_sync', channel);
+          //   if (!redis_channel_subscriptions.has(channel)) {
+          //     await subscriber.subscribe(channel);
+          //     redis_channel_subscriptions.add(channel);
+          //   }
+          // }
         });
       } else if (type == 'UNPATCH') {
         channels.forEach(async (channel) => {
           patches[channel] = Array.from(new Set(
             (patches[channel] || []).filter(c => !channels.includes(c) || c === channel)
           ));
-          if (members[channel].length) {} else {
-            console.log("Unsubscribing, ", channel);
-            await redis.srem(`${channel}_servers`, `${serverPublicIP}:3002`);
-            await subscriber.unsubscribe(channel);
-            await publisher.publish('server_exited_channel', channel);
-            redis_channel_subscriptions.delete(channel);
-            delete members[channel];
-            delete servers[channel];
-          }
+          // if (members[channel].length) {} else {
+          //   console.log("Unsubscribing, ", channel);
+          //   await redis.srem(`${channel}_servers`, `${serverPublicIP}:3002`);
+          //   await subscriber.unsubscribe(channel);
+          //   await publisher.publish('server_exited_channel', channel);
+          //   redis_channel_subscriptions.delete(channel);
+          //   delete members[channel];
+          //   delete servers[channel];
+          // }
         });
       }
       redis.set('patches', JSON.stringify(patches));
@@ -306,10 +309,9 @@ subscriber.on("message", async (event_name, data) => {
           console.log("Unsubscribing, ", channel_id);
           await redis.srem(`${channel_id}_servers`, `${serverPublicIP}:3002`);
           await subscriber.unsubscribe(channel_id);
-          await publisher.publish('server_exited_channel', channel_id);
+          await publisher.publish('server_channel_sync', channel_id);
           redis_channel_subscriptions.delete(channel_id);
           delete members[channel_id];
-          delete servers[channel_id];
         }
       } else {
         wss.clients.forEach((client) => {
