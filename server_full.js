@@ -437,7 +437,7 @@ machineSocket.bind(3002, () => {
       const {packet, port} = JSON.parse(data.toString('utf-8'));
       if (packet.channel_id && members[packet.channel_id]) {
         members[packet.channel_id].forEach((p) => {
-          if(p != port && udpSockets[p] && udpClients[p]) {
+          if(udpSockets[p] && udpClients[p]) {
             udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
               if (err) {
                 console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
@@ -480,32 +480,34 @@ function createSocket(p = 0) {
         try {
           const packet = JSON.parse(msg.toString('utf-8'));
           if (packet.channel_id && servers[packet.channel_id] && servers[packet.channel_id].length) {
-            servers[packet.channel_id].forEach((server_address) => {
-              if(server_address === `${serverPublicIP}:3002`) {
-                members[packet.channel_id].forEach((p) => {
-                  if(p != port && udpSockets[p] && udpClients[p]) {
-                    udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
-                      if (err) {
-                        console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
-                      } else {
-                        console.log(`Forwarded Packet to ${udpClients[p].address}:${udpClients[p].port}`);
-                      }
-                    });
-                  }
-                });
-              } else {
-                const [ip, p] = server_address.split(":");
-                patches[packet.channel_id]
-                packet.channel_id
-                machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
-                  if (err) {
-                    console.error(`Failed to send to ${ip}:${p}`, err);
-                  } else {
-                    console.log(`Forwarded Packet to ${ip}:${p}`);
-                  }
-                })
-              }
-            });
+            const channels = patches[packet.channel_id] || [packet.channel_id];
+            channels.forEach((channel) => {
+              packet.channel_id = channel;
+              servers[packet.channel_id].forEach((server_address) => {
+                if(server_address === `${serverPublicIP}:3002`) {
+                  members[packet.channel_id].forEach((p) => {
+                    if(p != port && udpSockets[p] && udpClients[p]) {
+                      udpSockets[p].send(JSON.stringify(packet), udpClients[p].port, udpClients[p].address, (err) => {
+                        if (err) {
+                          console.error(`Failed to send to ${udpClients[p].address}:${udpClients[p].port}`, err);
+                        } else {
+                          console.log(`Forwarded Packet to ${udpClients[p].address}:${udpClients[p].port}`);
+                        }
+                      });
+                    }
+                  });
+                } else {
+                  const [ip, p] = server_address.split(":");
+                  machineSocket.send(JSON.stringify({packet, port}), p, ip, (err) => {
+                    if (err) {
+                      console.error(`Failed to send to ${ip}:${p}`, err);
+                    } else {
+                      console.log(`Forwarded Packet to ${ip}:${p}`);
+                    }
+                  })
+                }
+              });
+            })
           }
         } catch ($e) { console.log($e); }
       });
