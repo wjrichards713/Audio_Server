@@ -211,7 +211,7 @@ redis.on('ready', async () => {
   const keys = await redis.keys('*');
   for (const key of keys) {
     if (key.endsWith('_servers')) {
-      const members = await redis.sMembers(key);
+      const members = await redis.smembers(key);
       for (const member of members) {
         if (member.startsWith(serverPublicIP)) {
           await redis.srem(key, member);
@@ -220,7 +220,7 @@ redis.on('ready', async () => {
       }
     }
     if (key.endsWith('_members')) {
-      const members = await redis.hGetAll(key);
+      const members = await redis.hgetall(key);
       for (const field in members) {
         if (field.startsWith(serverPublicIP)) {
           await redis.hdel(key, field);
