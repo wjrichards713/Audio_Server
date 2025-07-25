@@ -310,37 +310,28 @@ subscriber.on("message", async (event_name, data) => {
     default: {
       const channel_id = event_name;
       const {message, websocketId} = JSON.parse(data);
-      if(patches[channel_id] && patches[channel_id].length) {
-        channels = patches[channel_id];
-      } else {
-        channels = [channel_id];
-      }
       if(message.connect) {
         // const users_connected = [...new Set((await redis.hvals(`${channel_id}_members`)).map(JSON.parse))];
-        const users_connected = [...new Set((await Promise.all(channels.map(async (ch) => (await redis.hvals(`${ch}_members`)).map(JSON.parse)))).flat())];
+        const users_connected = [...new Set((await Promise.all((patches[channel_id] || [channel_id]).map(async (ch) => (await redis.hvals(`${ch}_members`)).map(JSON.parse)))).flat())];
         wss.clients.forEach((client) => {
-          channels.forEach((channel_id) => {
-            if(client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId)) {
-              if(client.websocketId != websocketId) {
-                client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
-              } else {
-                client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
-              }
+          if(client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId)) {
+            if(client.websocketId != websocketId) {
+              client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
+            } else {
+              client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
             }
-          });
+          }
         })
         return;
       }
       if(message.disconnect) {
         if((members[channel_id] || []).length) {
           // const users_connected = [...new Set((await redis.hvals(`${channel_id}_members`)).map(JSON.parse))];
-          const users_connected = [...new Set((await Promise.all(channels.map(async (ch) => (await redis.hvals(`${ch}_members`)).map(JSON.parse)))).flat())];
+          const users_connected = [...new Set((await Promise.all((patches[channel_id] || [channel_id]).map(async (ch) => (await redis.hvals(`${ch}_members`)).map(JSON.parse)))).flat())];
           wss.clients.forEach((client) => {
-            channels.forEach((channel_id) => {
-              if (client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId) && client.websocketId != websocketId) {
-                client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
-              }
-            })
+            if (client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId) && client.websocketId != websocketId) {
+              client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
+            }
           });
         } else {
           console.log("Unsubscribing, ", channel_id);
@@ -352,13 +343,9 @@ subscriber.on("message", async (event_name, data) => {
         }
       } else {
         wss.clients.forEach((client) => {
-          channels.forEach((channel_id) => {
-            if (message?.channel_id) {message.channel_id = channel_id;}
-            Object.values(message).forEach(obj => { if (obj?.channel_id) { obj.channel_id = channel_id; } });
-            if (client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId) && client.websocketId != websocketId) {
-              client.send(JSON.stringify(message));
-            }
-          })
+          if (client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId) && client.websocketId != websocketId) {
+            client.send(JSON.stringify(message));
+          }
         });
       }
     }
@@ -422,17 +409,27 @@ wss.on('connection', async (socket, req) => {
           await subscriber.subscribe(channel_id);
           redis_channel_subscriptions.add(channel_id);
         }
-        await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+        (patches[channel_id] || [channel_id]).forEach(async (channel_id) => {
+          await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+        })
       } else if(message.disconnect) {
         const { channel_id } = message.disconnect;
         members[channel_id] = (members[channel_id] || []).filter((port) => port != websocketId);
         await redis.hdel(`${channel_id}_members`, `${serverPublicIP}:${websocketId}`);
-        publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+        (patches[channel_id] || [channel_id]).forEach(async (channel_id) => {
+          if (message?.channel_id) {message.channel_id = channel_id;}
+          Object.values(message).forEach(obj => { if (obj?.channel_id) { obj.channel_id = channel_id; } });
+          await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+        })
       } else {
         for (const key in message) {
           if (Object.prototype.hasOwnProperty.call(message, key)) {
             const {channel_id} = message[key];
-            publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+            (patches[channel_id] || [channel_id]).forEach(async (channel_id) => {
+              if (message?.channel_id) {message.channel_id = channel_id;}
+              Object.values(message).forEach(obj => { if (obj?.channel_id) { obj.channel_id = channel_id; } });
+              await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+            })
           }
         }
       }
