@@ -320,7 +320,7 @@ subscriber.on("message", async (event_name, data) => {
         const users_connected = [...new Set((await Promise.all(channels.map(async (ch) => (await redis.hvals(`${ch}_members`)).map(JSON.parse)))).flat())];
         wss.clients.forEach((client) => {
           channels.forEach((channel_id) => {
-            if(client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId)) {
+            if(client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId)) {
               if(client.websocketId != websocketId) {
                 client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
               } else {
@@ -332,12 +332,12 @@ subscriber.on("message", async (event_name, data) => {
         return;
       }
       if(message.disconnect) {
-        if(members[channel_id].length) {
+        if((members[channel_id] || []).length) {
           // const users_connected = [...new Set((await redis.hvals(`${channel_id}_members`)).map(JSON.parse))];
           const users_connected = [...new Set((await Promise.all(channels.map(async (ch) => (await redis.hvals(`${ch}_members`)).map(JSON.parse)))).flat())];
           wss.clients.forEach((client) => {
             channels.forEach((channel_id) => {
-              if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
+              if (client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId) && client.websocketId != websocketId) {
                 client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
               }
             })
@@ -355,7 +355,7 @@ subscriber.on("message", async (event_name, data) => {
           channels.forEach((channel_id) => {
             if (message?.channel_id) {message.channel_id = channel_id;}
             Object.values(message).forEach(obj => { if (obj?.channel_id) { obj.channel_id = channel_id; } });
-            if (client.readyState === WebSocket.OPEN && members[channel_id].includes(client.websocketId) && client.websocketId != websocketId) {
+            if (client.readyState === WebSocket.OPEN && (members[channel_id] || []).includes(client.websocketId) && client.websocketId != websocketId) {
               client.send(JSON.stringify(message));
             }
           })
