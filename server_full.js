@@ -200,6 +200,37 @@ const subscriber = new Redis({
 const redis_channel_subscriptions = new Set();
 
 subscriber.subscribe('server_channel_sync');
+subscriber.subscribe('patchings');
+
+redis.on('ready', async () => {
+  const raw = await redis.get('patches');
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    Object.assign(patches, parsed);
+  }
+  const keys = await redis.keys('*');
+  for (const key of keys) {
+    if (key.endsWith('_servers')) {
+      const members = await redis.sMembers(key);
+      for (const member of members) {
+        if (member.startsWith(serverPublicIP)) {
+          await redis.srem(key, member);
+          console.log(`Removed ${member} from ${key}`);
+        }
+      }
+    }
+    if (key.endsWith('_members')) {
+      const members = await redis.hGetAll(key);
+      for (const field in members) {
+        if (field.startsWith(serverPublicIP)) {
+          await redis.hdel(key, field);
+          console.log(`Removed ${field} from ${key}`);
+        }
+      }
+    }
+  }
+});
+
 subscriber.on("message", async (event_name, data) => {
   switch (event_name) {
     case 'server_channel_sync': {
@@ -210,6 +241,25 @@ subscriber.on("message", async (event_name, data) => {
       } else {
         delete servers[channel_id];
       }
+      return;
+    }
+    case 'patchings': {
+      const { type, channels } = JSON.parse(data);
+      if(type == 'PATCH') {
+        channels.forEach(channel => {
+          patches[channel] = Array.from(new Set([
+            ...(patches[channel] || []),
+            ...channels
+          ]));
+        });
+      } else if (type == 'UNPATCH') {
+        channels.forEach(channel => {
+          patches[channel] = Array.from(new Set(
+            (patches[channel] || []).filter(c => !channels.includes(c) || c === channel)
+          ));
+        });
+      }
+      redis.set('patches', JSON.stringify(patches));
       return;
     }
     default: {
@@ -444,12 +494,7 @@ app.post("/channels/patch", async (req, res) => {
     return res.status(400).json({ error: "Provide at least two channels." });
   }
   try {
-    channels.forEach(channel => {
-      patches[channel] = Array.from(new Set([
-        ...(patches[channel] || []),
-        ...channels
-      ]));
-    });
+    publisher.publish('patchings', JSON.stringify({type: 'PATCH', channels}));
     res.json({ message: "Channels patched successfully." });
   } catch (err) {
     console.error("Patch error:", err);
@@ -462,11 +507,7 @@ app.post("/channels/unpatch", async (req, res) => {
     return res.status(400).json({ error: "Provide channels to unmerge." });
   }
   try {
-    channels.forEach(channel => {
-      patches[channel] = Array.from(new Set(
-        (patches[channel] || []).filter(c => !channels.includes(c) || c === channel)
-      ));
-    });
+    publisher.publish('patchings', JSON.stringify({type: 'UNPATCH', channels}));
     res.json({ message: "Channels unpatched successfully." });
   } catch (err) {
     console.error("Unmerge error:", err);
