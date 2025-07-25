@@ -210,6 +210,7 @@ redis.on('ready', async () => {
   }
   const keys = await redis.keys('*');
   for (const key of keys) {
+    console.log(key);
     if (key.endsWith('_servers')) {
       const members = await redis.smembers(key);
       for (const member of members) {
