@@ -1,54 +1,58 @@
-const WebSocket = require('ws');
 const express = require('express');
 const cors = require("cors");
+const WebSocket = require('ws');
+const dgram = require("dgram");
+const Redis = require("ioredis");
 require('dotenv').config();
 
-// Import modular components
-const { state, initializeState } = require('./modules/state');
-const { subscriber } = require('./modules/redis');
-const { setupRoutes } = require('./modules/routes');
-const { setupWebSocket } = require('./modules/websocket');
-const { setupMachineSocket } = require('./modules/udpSocket');
+const createChannelRoutes = require('./routes/channels');
+const createSystemRoutes = require('./routes/system');
+const websocketHandler = require('./modules/websocket');
+const { setupUDP } = require('./modules/udp');
+const redisSetup = require('./modules/redis');
+const { getPublicIP } = require('./modules/utils');
 
-async function startServer() {
+// Initialize Express app
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.static('client'));
+
+// Global state
+global.udpSockets = {};
+global.udpClients = {};
+global.servers = {};
+global.members = {};
+global.patches = {};
+global.serverPublicIP = null;
+
+// Initialize server's public IP
+(async () => {
   try {
-    // Initialize state first
-    await initializeState();
-    
-    const app = express();
-    app.use(cors());
-    app.use(express.static('client'));
-    app.use(express.json());
-
-    // Setup API routes
-    setupRoutes(app, state);
-
-    app.listen(3000, () => {
-      console.log(`Express API running on http://localhost:3000`);
-    });
-
-    const wss = new WebSocket.Server({ port: 3001 }, () => {
-      console.log('WebSocket server started on ws://localhost:3001');
-    });
-
-    // Setup WebSocket handling (this also sets up subscriber message handling)
-    setupWebSocket(wss, state);
-    
-    subscriber.subscribe('server_channel_sync');
-    subscriber.subscribe('patched_info');
-
-    // Setup machine socket for inter-server communication
-    const machineSocket = setupMachineSocket(state);
-    
-    console.log("🚀 Server started successfully");
-    
+    global.serverPublicIP = await getPublicIP();
+    console.log(`Server's public IP initialized: ${global.serverPublicIP}`);
   } catch (err) {
-    console.error("❌ Failed to start server:", err);
-    process.exit(1);
+    console.error("Failed to initialize server's public IP:", err);
   }
-}
+})();
 
-// Start the server
-startServer();
+// Setup Redis connections
+const { redis, publisher, subscriber } = redisSetup();
 
+// Routes
+app.use('/channels', createChannelRoutes(redis, publisher));
+app.use('/', createSystemRoutes(redis));
 
+// WebSocket server
+const wss = new WebSocket.Server({ port: 3001 }, () => {
+  console.log('WebSocket server started on ws://localhost:3001');
+});
+
+// Setup WebSocket and UDP handlers
+websocketHandler(wss, redis, publisher, subscriber);
+setupUDP(redis, publisher, subscriber);
+
+// Start Express server
+app.listen(3000, () => {
+  console.log(`Express API running on http://localhost:3000`);
+});
