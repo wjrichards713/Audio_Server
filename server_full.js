@@ -104,19 +104,32 @@ app.get("/channels/:channelId", async (req, res) => {
 // CREATE or UPDATE a channel
 app.post("/channels", async (req, res) => {
   try {
-    if (!req.body?.channel_id) {
+    let channels = [];
+    if (Array.isArray(req.body)) {
+      // Validate each object in the array
+      for (const ch of req.body) {
+        if (!ch?.channel_id) {
+          return res.status(400).json({ error: "Missing required channel_id in one or more objects" });
+        }
+        channels.push(ch);
+      }
+    } else if (req.body?.channel_id) {
+      channels.push(req.body);
+    } else {
       return res.status(400).json({ error: "Missing required channel_id field" });
     }
-    await redis.hset('channels', {
-      [req.body.channel_id.toString()]: JSON.stringify(req.body)
-    });
+    const redisMap = {};
+    for (const ch of channels) {
+      redisMap[ch.channel_id.toString()] = JSON.stringify(ch);
+    }
+    await redis.hset('channels', redisMap);
     res.status(201).json({
-      message: "Channel created/updated successfully",
-      channel: req.body
+      message: "Channel(s) created/updated successfully",
+      channels: channels
     });
   } catch (err) {
     console.error("Error creating/updating channel:", err);
-    res.status(500).json({ error: "Failed to create/update channel" });
+    res.status(500).json({ error: "Failed to create/update channel(s)" });
   }
 });
 
