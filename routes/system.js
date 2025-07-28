@@ -63,7 +63,7 @@ function createSystemRoutes(redis) {
 
   // Health check endpoint
   router.get('/health', (req, res) => {
-    res.json(true);
+    res.json(global.serverPublicIP);
   });
 
   // Patches endpoint
