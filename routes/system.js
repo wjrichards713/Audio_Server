@@ -20,10 +20,11 @@ function createSystemRoutes(redis) {
         users[channel_id] = parsedEntries;
       }
       res.json({ 
+        ip: global.serverPublicIP,
         udpSockets: global.udpSockets, 
         members: global.members, 
         udpClients: global.udpClients, 
-        users, 
+        users,
         servers: global.servers, 
         patches: global.patches 
       });
