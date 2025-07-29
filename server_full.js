@@ -61,7 +61,7 @@ app.get("/audio-server-connected-users", async (req, res) => {
       }));
       users[channel_id] = parsedEntries;
     }
-    res.json({ udpSockets, members, udpClients, users, servers, patches, ip: serverPublicIP });
+    res.json({ ip: serverPublicIP, udpSockets, members, udpClients, users, servers, patches });
   } catch (err) {
     res.json([]);
   }
