@@ -28,7 +28,7 @@ function createSocket(p = 0) {
             const channels = global.patches[packet.channel_id] || [packet.channel_id];
             channels.forEach((channel) => {
               packet.channel_id = channel;
-              global.servers[packet.channel_id].forEach((server_address) => {
+              (global.servers[packet.channel_id] || []).forEach((server_address) => {
                 if(server_address === `${global.serverPublicIP}:3002`) {
                   global.members[packet.channel_id].forEach((p) => {
                     if(p != port && global.udpSockets[p] && global.udpClients[p]) {
