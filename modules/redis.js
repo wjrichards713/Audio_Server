@@ -42,7 +42,7 @@ function buildSentinelOptions() {
     enableReadyCheck: true,          // verify role before "ready"
     role: "master",                  // always connect to master for writes
     retryDelayOnFailover: 100,       // retry immediately on failover
-    enableOfflineQueue: false,       // don't queue commands when disconnected
+    enableOfflineQueue: true,        // allow queueing commands when disconnected
     maxRetriesPerRequest: 3,         // max retries per command
     connectTimeout: 10000,           // 10 second timeout
     sentinelConnectTimeout: 5000,    // 5 second sentinel timeout
