@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Server Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-card h3 {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #4a5568;
+            margin-bottom: 5px;
+        }
+
+        .stat-card .label {
+            font-size: 0.9rem;
+            color: #718096;
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
+        }
+
+        .panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .panel h2 {
+            margin-bottom: 20px;
+            color: #2d3748;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+        }
+
+        .cluster-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 8px;
+            border-left: 4px solid #48bb78;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #48bb78;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .users-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .user-item {
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #f7fafc;
+            border-radius: 8px;
+            border-left: 4px solid #4299e1;
+        }
+
+        .user-item .user-id {
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 5px;
+        }
+
+        .user-item .user-details {
+            font-size: 0.9rem;
+            color: #718096;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+        }
+
+        .refresh-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: #4299e1;
+            color: white;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 16px rgba(66, 153, 225, 0.4);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        .refresh-btn:hover {
+            background: #3182ce;
+            transform: scale(1.1);
+        }
+
+        .refresh-btn.loading {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .error-message {
+            background: #fed7d7;
+            border: 1px solid #feb2b2;
+            color: #c53030;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+        }
+
+        .auto-refresh input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+
+        .auto-refresh label {
+            color: white;
+            cursor: pointer;
+        }
+
+        .channel-filter {
+            margin-bottom: 15px;
+        }
+
+        .channel-filter input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .channel-filter input:focus {
+            outline: none;
+            border-color: #4299e1;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+        }
+
+        .servers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .server-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .server-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .server-card.active {
+            border-left: 4px solid #48bb78;
+        }
+
+        .server-card.idle {
+            border-left: 4px solid #a0aec0;
+        }
+
+        .server-card.error {
+            border-left: 4px solid #f56565;
+        }
+
+        .server-card h3 {
+            margin-bottom: 15px;
+            color: #2d3748;
+            font-size: 1.2rem;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .server-status {
+            font-size: 0.8rem;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: bold;
+        }
+
+        .server-status.active {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .server-status.idle {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+
+        .server-status.error {
+            background: #fed7d7;
+            color: #c53030;
+        }
+
+        .server-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .server-stat {
+            text-align: center;
+            padding: 10px;
+            background: #f7fafc;
+            border-radius: 6px;
+        }
+
+        .server-stat .value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #4a5568;
+        }
+
+        .server-stat .label {
+            font-size: 0.8rem;
+            color: #718096;
+            margin-top: 2px;
+        }
+
+        .channels-section {
+            margin-top: 15px;
+        }
+
+        .channels-section h4 {
+            font-size: 0.9rem;
+            color: #4a5568;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .channel-item {
+            margin-bottom: 8px;
+            padding: 10px;
+            background: #edf2f7;
+            border-radius: 6px;
+            border-left: 3px solid #4299e1;
+        }
+
+        .channel-header {
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .member-count {
+            font-size: 0.8rem;
+            background: #4299e1;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+        }
+
+        .members-list {
+            font-size: 0.8rem;
+            color: #666;
+        }
+
+        .member-badge {
+            display: inline-block;
+            background: #bee3f8;
+            color: #2c5282;
+            padding: 2px 6px;
+            margin: 2px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .system-metrics {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 3px solid #17a2b8;
+        }
+
+        .system-metrics h5 {
+            color: #495057;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .metric-item {
+            background: white;
+            padding: 8px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #495057;
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            color: #6c757d;
+            margin-top: 2px;
+        }
+
+        .cpu-cores {
+            margin-top: 8px;
+            font-size: 0.8rem;
+        }
+
+        .cpu-core {
+            display: inline-block;
+            margin: 2px;
+            padding: 2px 6px;
+            background: #e9ecef;
+            border-radius: 3px;
+            color: #495057;
+        }
+
+        .cpu-core.high {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .cpu-core.medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .uptime-info {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 8px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard">
+        <div class="header">
+            <h1>🎵 Audio Server Dashboard</h1>
+            <p class="subtitle">Real-time monitoring of connected users and server status</p>
+            <div class="auto-refresh">
+                <input type="checkbox" id="autoRefresh" checked>
+                <label for="autoRefresh">Auto-refresh every 5 seconds</label>
+            </div>
+        </div>
+
+        <div class="error-message" id="errorMessage"></div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Users</h3>
+                <div class="value" id="totalUsers">-</div>
+                <div class="label">Connected Users</div>
+            </div>
+            <div class="stat-card">
+                <h3>Active Channels</h3>
+                <div class="value" id="activeChannels">-</div>
+                <div class="label">Voice Channels</div>
+            </div>
+            <div class="stat-card">
+                <h3>Server Instances</h3>
+                <div class="value" id="serverInstances">-</div>
+                <div class="label">Cluster Nodes</div>
+            </div>
+            <div class="stat-card">
+                <h3>UDP Clients</h3>
+                <div class="value" id="udpClients">-</div>
+                <div class="label">UDP Connections</div>
+            </div>
+            <div class="stat-card">
+                <h3>Patches</h3>
+                <div class="value" id="patchCount">-</div>
+                <div class="label">Active Patches</div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="panel">
+                <h2>🖥️ Server Status</h2>
+                <div id="serverStatus"></div>
+            </div>
+
+            <div class="panel">
+                <h2>👥 Connected Users</h2>
+                <div class="channel-filter">
+                    <input type="text" id="channelFilter" placeholder="Filter by channel ID...">
+                </div>
+                <div class="users-list" id="usersList"></div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="panel">
+                <h2>🔗 Patches</h2>
+                <div id="patchesList"></div>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <h2 style="color: white; text-align: center; margin-bottom: 20px;">🖥️ Individual Server Status</h2>
+            <div class="servers-grid" id="serversGrid"></div>
+        </div>
+    </div>
+
+    <button class="refresh-btn" id="refreshBtn" onclick="fetchData()">
+        🔄
+    </button>
+
+    <script>
+        let refreshInterval;
+        let lastUpdateTime = 0;
+
+        function formatRelativeTime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const remainingSeconds = seconds % 60;
+            
+            const parts = [];
+            
+            if (days > 0) {
+                parts.push(`${days} day${days !== 1 ? 's' : ''}`);
+            }
+            if (hours > 0) {
+                parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
+            }
+            if (minutes > 0) {
+                parts.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
+            }
+            if (parts.length === 0 || (parts.length === 0 && remainingSeconds > 0)) {
+                parts.push(`${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`);
+            }
+            
+            return parts.join(' ') + ' ago';
+        }
+
+        async function fetchData() {
+            const refreshBtn = document.getElementById('refreshBtn');
+            const errorMessage = document.getElementById('errorMessage');
+
+            try {
+                refreshBtn.classList.add('loading');
+                errorMessage.style.display = 'none';
+
+                const response = await fetch('/audio-server-connected-users');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                updateDashboard(data);
+                lastUpdateTime = Date.now();
+
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                errorMessage.textContent = `Failed to fetch data: ${error.message}`;
+                errorMessage.style.display = 'block';
+            } finally {
+                refreshBtn.classList.remove('loading');
+            }
+        }
+
+        function updateDashboard(data) {
+            // Calculate statistics from new API response format
+            const statuses = data.statuses || [];
+            const users = data.users || {};
+            const servers = data.servers || {};
+            const patches = data.patches || {};
+
+            // Count total users from users object
+            let totalUsers = 0;
+            Object.values(users).forEach(channel => {
+                totalUsers += channel.length;
+            });
+
+            // Count active channels
+            const activeChannels = Object.keys(users).length;
+
+            // Count server instances
+            const serverInstances = data.count || statuses.length;
+
+            // Count UDP clients from all statuses
+            let totalUdpClients = 0;
+            statuses.forEach(status => {
+                totalUdpClients += Object.keys(status.udpClients || {}).length;
+            });
+
+            // Count patches
+            const patchCount = Object.keys(patches).length;
+
+            document.getElementById('totalUsers').textContent = totalUsers;
+            document.getElementById('activeChannels').textContent = activeChannels;
+            document.getElementById('serverInstances').textContent = serverInstances;
+            document.getElementById('udpClients').textContent = totalUdpClients;
+            document.getElementById('patchCount').textContent = patchCount;
+
+            // Update all sections with new data structure
+            updateServerStatus(data);
+            updateUsersList(data);
+            updatePatchesList(data);
+            updateServerCards(data);
+        }
+
+        function updateServerStatus(data) {
+            const statusContainer = document.getElementById('serverStatus');
+            const statuses = data.statuses || [];
+
+            let statusHtml = '';
+
+            // Cluster overview
+            statusHtml += `
+                <div class="cluster-status">
+                    <div class="status-dot"></div>
+                    <div>
+                        <strong>Total Servers:</strong> ${data.count || statuses.length}<br>
+                        <strong>Active Servers:</strong> ${statuses.filter(s => !s.error).length}<br>
+                        <strong>Channel Servers:</strong> ${Object.keys(data.servers || {}).length}
+                    </div>
+                </div>
+            `;
+
+            // Individual server status
+            if (statuses.length > 0) {
+                statusHtml += '<h4 style="margin: 15px 0 10px 0;">Server Status:</h4>';
+                statuses.forEach((status, index) => {
+                    const udpSocketCount = Object.keys(status.udpSockets || {}).length;
+                    const memberCount = Object.keys(status.members || {}).length;
+                    const udpClientCount = Object.keys(status.udpClients || {}).length;
+                    const isActive = !status.error && (udpSocketCount > 0 || memberCount > 0 || udpClientCount > 0);
+
+                    // Calculate average CPU usage
+                    let avgCpuUsage = 'Unknown';
+                    if (status.cpu && Array.isArray(status.cpu)) {
+                        const totalUsage = status.cpu.reduce((sum, core) => {
+                            const usage = parseFloat(core.usage.replace('%', ''));
+                            return sum + usage;
+                        }, 0);
+                        avgCpuUsage = (totalUsage / status.cpu.length).toFixed(1) + '%';
+                    }
+
+                    statusHtml += `
+                        <div style="margin-bottom: 15px; padding: 15px; background: #edf2f7; border-radius: 6px; border-left: 4px solid ${isActive ? '#48bb78' : '#a0aec0'};">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 8px;">
+                                <div><strong>Server IP:</strong> ${status.ip}</div>
+                                <div><strong>Status:</strong> ${status.error ? 'Error' : (isActive ? 'Active' : 'Idle')}</div>
+                                <div><strong>CPU:</strong> ${avgCpuUsage}</div>
+                                <div><strong>Memory:</strong> ${status.memory?.usagePercent || 'Unknown'}</div>
+                                <div><strong>UDP Sockets:</strong> ${udpSocketCount}</div>
+                                <div><strong>UDP Clients:</strong> ${udpClientCount}</div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.85rem; color: #666; margin-top: 8px;">
+                                <div><strong>Members:</strong> ${memberCount}</div>
+                                <div><strong>Channels:</strong> ${Object.keys(status.members || {}).join(', ') || 'None'}</div>
+                            </div>
+                            ${status.error ? `<div style="color: #e53e3e; font-size: 0.85rem; margin-top: 8px;"><strong>Error:</strong> ${status.error}</div>` : ''}
+                        </div>
+                    `;
+                });
+            }
+
+            statusContainer.innerHTML = statusHtml;
+        }
+
+        function updateUsersList(data) {
+            const usersList = document.getElementById('usersList');
+            const filterValue = document.getElementById('channelFilter').value.toLowerCase();
+            const users = data.users || {};
+            const statuses = data.statuses || [];
+
+            let usersHtml = '';
+            let hasUsers = false;
+
+            if (Object.keys(users).length === 0) {
+                usersHtml = '<p style="text-align: center; color: #718096; padding: 20px;">No users currently connected</p>';
+            } else {
+                Object.entries(users).forEach(([channelId, channelUsers]) => {
+                    if (filterValue && !channelId.toLowerCase().includes(filterValue)) {
+                        return;
+                    }
+
+                    hasUsers = true;
+                    usersHtml += `<h4 style="margin: 15px 0 10px 0; color: #4a5568;">Channel: ${channelId}</h4>`;
+
+                    channelUsers.forEach(user => {
+                        const joinTime = user.time ? new Date(user.time * 1000).toLocaleTimeString() : 'Unknown';
+                        // Find which server this user is connected to
+                        const userServer = statuses.find(status =>
+                            status.members && status.members[channelId] &&
+                            status.members[channelId].includes(parseInt(user.socketId.split(':')[1]))
+                        );
+
+                        usersHtml += `
+                            <div class="user-item">
+                                <div class="user-id">
+                                    <strong>${user.user_name || 'Anonymous'}</strong> (${user.agency_name || 'Unknown Agency'})
+                                </div>
+                                <div class="user-details">
+                                    <span><strong>Socket:</strong> ${user.socketId}</span>
+                                    <span><strong>Server:</strong> ${userServer ? userServer.ip : 'Unknown'}</span>
+                                    <span><strong>Affiliation:</strong> ${user.affiliation_id || 'Unknown'}</span>
+                                    <span><strong>Joined:</strong> ${joinTime}</span>
+                                    <span><strong>Channel:</strong> ${user.channel_id}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                });
+            }
+
+            usersList.innerHTML = usersHtml;
+        }
+
+        function updatePatchesList(data) {
+            const patchesList = document.getElementById('patchesList');
+            const patches = data.patches || {};
+
+            let patchesHtml = '';
+
+            if (Object.keys(patches).length === 0) {
+                patchesHtml = '<p style="text-align: center; color: #718096; padding: 20px;">No patches configured</p>';
+            } else {
+                Object.entries(patches).forEach(([patchId, connections]) => {
+                    patchesHtml += `
+                        <div style="margin-bottom: 12px; padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #9f7aea;">
+                            <div style="font-weight: bold; color: #2d3748; margin-bottom: 8px;">Patch: ${patchId}</div>
+                            <div style="font-size: 0.9rem; color: #718096;">
+                                <strong>Connected to:</strong> ${connections.join(', ')}<br>
+                                <strong>Total Connections:</strong> ${connections.length}<br>
+                                <strong>Type:</strong> ${connections.includes(patchId) ? 'Bi-directional' : 'One-way'}
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            patchesList.innerHTML = patchesHtml;
+        }
+
+
+        function updateServerCards(data) {
+            const serversGrid = document.getElementById('serversGrid');
+            const statuses = data.statuses || [];
+            const users = data.users || {};
+
+            let cardsHtml = '';
+
+            statuses.forEach((server, index) => {
+                const udpSocketCount = Object.keys(server.udpSockets || {}).length;
+                const memberCount = Object.keys(server.members || {}).length;
+                const udpClientCount = Object.keys(server.udpClients || {}).length;
+                const hasActivity = udpSocketCount > 0 || memberCount > 0 || udpClientCount > 0;
+
+                let statusClass = 'idle';
+                let statusText = 'Idle';
+
+                if (server.error) {
+                    statusClass = 'error';
+                    statusText = 'Error';
+                } else if (hasActivity) {
+                    statusClass = 'active';
+                    statusText = 'Active';
+                }
+
+                cardsHtml += `
+                    <div class="server-card ${statusClass}">
+                        <h3>
+                            ${server.ip}
+                            <span class="server-status ${statusClass}">${statusText}</span>
+                        </h3>
+                        
+                        <div class="server-stats">
+                            <div class="server-stat">
+                                <div class="value">${udpSocketCount}</div>
+                                <div class="label">UDP Sockets</div>
+                            </div>
+                            <div class="server-stat">
+                                <div class="value">${udpClientCount}</div>
+                                <div class="label">UDP Clients</div>
+                            </div>
+                        </div>
+                `;
+
+                // Add system metrics if available
+                if (server.cpu || server.memory || server.uptime) {
+                    cardsHtml += `
+                        <div class="system-metrics">
+                            <h5>System Metrics</h5>
+                            <div class="metrics-grid">
+                    `;
+
+                    // CPU Usage
+                    if (server.cpu && Array.isArray(server.cpu)) {
+                        const totalUsage = server.cpu.reduce((sum, core) => {
+                            const usage = parseFloat(core.usage.replace('%', ''));
+                            return sum + usage;
+                        }, 0);
+                        const avgCpuUsage = (totalUsage / server.cpu.length).toFixed(1);
+                        
+                        cardsHtml += `
+                            <div class="metric-item">
+                                <div class="metric-value">${avgCpuUsage}%</div>
+                                <div class="metric-label">CPU Average</div>
+                            </div>
+                        `;
+                    }
+
+                    // Memory Usage
+                    if (server.memory) {
+                        cardsHtml += `
+                            <div class="metric-item">
+                                <div class="metric-value">${server.memory.usagePercent || 'Unknown'}</div>
+                                <div class="metric-label">Memory Used</div>
+                            </div>
+                        `;
+                    }
+
+                    cardsHtml += `</div>`;
+
+                    // CPU Cores breakdown
+                    if (server.cpu && Array.isArray(server.cpu)) {
+                        cardsHtml += `
+                            <div class="cpu-cores">
+                                <strong>CPU Cores:</strong><br>
+                        `;
+                        
+                        server.cpu.forEach(core => {
+                            const usage = parseFloat(core.usage.replace('%', ''));
+                            let coreClass = '';
+                            if (usage > 80) coreClass = 'high';
+                            else if (usage > 50) coreClass = 'medium';
+                            
+                            cardsHtml += `
+                                <span class="cpu-core ${coreClass}" title="${core.model} - ${core.speed}MHz">
+                                    Core ${core.core}: ${core.usage}
+                                </span>
+                            `;
+                        });
+                        
+                        cardsHtml += `</div>`;
+                    }
+
+                    // Memory breakdown
+                    if (server.memory) {
+                        cardsHtml += `
+                            <div style="font-size: 0.8rem; margin-top: 8px; color: #666;">
+                                <strong>Memory:</strong> ${server.memory.used} used of ${server.memory.total}
+                                (${server.memory.free} free)
+                            </div>
+                        `;
+                    }
+
+                    // Uptime
+                    if (server.uptime) {
+                        const uptimeSeconds = parseInt(server.uptime.replace(' seconds', ''));
+                        const uptimeFormatted = formatRelativeTime(uptimeSeconds);
+                        
+                        cardsHtml += `
+                            <div class="uptime-info">
+                                <strong>Process Started:</strong> ${uptimeFormatted}
+                            </div>
+                        `;
+                    }
+
+                    cardsHtml += `</div>`;
+                }
+
+                // Show channel details for this server
+                const serverChannels = server.members || {};
+                if (Object.keys(serverChannels).length > 0) {
+                    cardsHtml += `
+                        <div class="channels-section">
+                            <h4>Active Channels (${Object.keys(serverChannels).length})</h4>
+                    `;
+
+                    Object.entries(serverChannels).forEach(([channelId, memberIds]) => {
+                        const channelUsers = users[channelId] || [];
+
+                        cardsHtml += `
+                            <div class="channel-item">
+                                <div class="channel-header">
+                                    <span>Channel ${channelId}</span>
+                                    <span class="member-count">${memberIds.length} members</span>
+                                </div>
+                                <div class="members-list">
+                        `;
+
+                        // Show member details
+                        memberIds.forEach(memberId => {
+                            // Find user details from users object
+                            const user = channelUsers.find(u =>
+                                u.socketId && u.socketId.includes(memberId.toString())
+                            );
+
+                            if (user) {
+                                cardsHtml += `
+                                    <span class="member-badge" title="${user.affiliation_id || 'Unknown'}">
+                                        ${user.user_name || 'User'} (${user.agency_name || 'Unknown'})
+                                    </span>
+                                `;
+                            } else {
+                                cardsHtml += `<span class="member-badge">Socket ${memberId}</span>`;
+                            }
+                        });
+
+                        cardsHtml += `
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    cardsHtml += `</div>`;
+                } else {
+                    cardsHtml += `
+                        <div class="channels-section">
+                            <h4>Channels</h4>
+                            <p style="color: #718096; font-style: italic; text-align: center; padding: 10px;">
+                                No active channels
+                            </p>
+                        </div>
+                    `;
+                }
+
+                if (server.error) {
+                    cardsHtml += `
+                        <div style="margin-top: 10px; padding: 10px; background: #fed7d7; border-radius: 6px; border-left: 3px solid #f56565;">
+                            <strong>Error:</strong> ${server.error}
+                        </div>
+                    `;
+                }
+
+                cardsHtml += `</div>`;
+            });
+
+            if (statuses.length === 0) {
+                cardsHtml = `
+                    <div style="text-align: center; color: white; padding: 40px;">
+                        <h3>No servers found</h3>
+                        <p>No server status data available</p>
+                    </div>
+                `;
+            }
+
+            serversGrid.innerHTML = cardsHtml;
+        }
+
+        function setupAutoRefresh() {
+            const checkbox = document.getElementById('autoRefresh');
+
+            function toggleAutoRefresh() {
+                if (checkbox.checked) {
+                    refreshInterval = setInterval(fetchData, 5000);
+                } else {
+                    clearInterval(refreshInterval);
+                }
+            }
+
+            checkbox.addEventListener('change', toggleAutoRefresh);
+            toggleAutoRefresh(); // Initialize
+        }
+
+        // Setup channel filter
+        document.getElementById('channelFilter').addEventListener('input', () => {
+            if (lastUpdateTime > 0) {
+                fetchData();
+            }
+        });
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+            setupAutoRefresh();
+        });
+    </script>
+</body>
+
+</html>
