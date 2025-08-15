@@ -109,8 +109,6 @@ function createSystemRoutes(redis, sentinelClient) {
         servers: global.servers,
         patches: global.patches,
         statuses, // array of all server status objects
-        sentinelMasters: masters,
-        sentinelSlaves: slaves,
         redis: redisError ? {
           error: redisError
         } : {
