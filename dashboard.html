@@ -926,10 +926,17 @@
             const overviewContainer = document.getElementById('serverOverview');
             const listContainer = document.getElementById('serverList');
             const statuses = data.statuses || [];
+            const servers = data.servers || {};
 
             const activeServers = statuses.filter(s => !s.error).length;
             const totalServers = statuses.length;
-            const channelServers = Object.keys(data.servers || {}).length;
+            const channelsWithServers = Object.keys(servers).length;
+            
+            // Count total server mappings (channels can have multiple servers)
+            let totalServerMappings = 0;
+            Object.values(servers).forEach(serverArray => {
+                totalServerMappings += serverArray.length;
+            });
 
             overviewContainer.innerHTML = `
                 <div class="overview-item">
@@ -941,8 +948,12 @@
                     <div class="text">Active Servers</div>
                 </div>
                 <div class="overview-item">
-                    <div class="number">${channelServers}</div>
-                    <div class="text">Channel Servers</div>
+                    <div class="number">${channelsWithServers}</div>
+                    <div class="text">Mapped Channels</div>
+                </div>
+                <div class="overview-item">
+                    <div class="number">${totalServerMappings}</div>
+                    <div class="text">Server Connections</div>
                 </div>
             `;
 
@@ -1014,6 +1025,36 @@
             }
 
             listContainer.innerHTML = listHtml;
+            
+            // Add channel-server mappings section
+            if (Object.keys(servers).length > 0) {
+                listHtml += `
+                    <div style="margin-top: 30px;">
+                        <h3 style="color: #4a5568; margin-bottom: 16px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                            🔗 Channel-Server Mappings
+                        </h3>
+                `;
+                
+                Object.entries(servers).forEach(([channelId, serverList]) => {
+                    listHtml += `
+                        <div class="server-item active" style="border-left-color: #9f7aea;">
+                            <div class="server-header">
+                                <div class="server-ip">📢 Channel: ${channelId}</div>
+                                <div class="server-status-badge active">${serverList.length} server(s)</div>
+                            </div>
+                            <div style="margin-top: 8px; font-size: 0.9rem;">
+                                <strong>Connected Servers:</strong><br>
+                                ${serverList.map(server => 
+                                    `<span class="connection-badge" style="background: #e6fffa; color: #234e52; margin: 2px;">${server}</span>`
+                                ).join('')}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                listHtml += `</div>`;
+                listContainer.innerHTML = listHtml;
+            }
         }
 
         function updateQuickStats(data) {
@@ -1064,6 +1105,7 @@
             const usersList = document.getElementById('usersList');
             const filterValue = document.getElementById('channelFilter').value.toLowerCase();
             const users = data.users || {};
+            const servers = data.servers || {};
             const statuses = data.statuses || [];
 
             let usersHtml = '';
@@ -1082,7 +1124,16 @@
                         return;
                     }
 
-                    usersHtml += `<h4 style="margin: 20px 0 12px 0; color: #4a5568; font-size: 1.1rem;">📢 Channel: ${channelId}</h4>`;
+                    // Get server information for this channel
+                    const channelServers = servers[channelId] || [];
+                    const serverInfo = channelServers.length > 0 ? channelServers.join(', ') : 'No server assigned';
+
+                    usersHtml += `
+                        <h4 style="margin: 20px 0 8px 0; color: #4a5568; font-size: 1.1rem;">📢 Channel: ${channelId}</h4>
+                        <div style="margin-bottom: 12px; padding: 8px 16px; background: #e6fffa; border-left: 4px solid #38b2ac; border-radius: 6px; font-size: 0.9rem;">
+                            <strong>🖥️ Connected Server(s):</strong> <span style="color: #234e52; font-weight: 600;">${serverInfo}</span>
+                        </div>
+                    `;
 
                     channelUsers.forEach(user => {
                         const joinTime = user.time ? new Date(user.time * 1000).toLocaleTimeString() : 'Unknown';
@@ -1117,6 +1168,7 @@
             const channelsList = document.getElementById('channelsList');
             const channels = data.channels || {};
             const users = data.users || {};
+            const servers = data.servers || {};
 
             let channelsHtml = '';
 
@@ -1133,6 +1185,7 @@
                     const channelUsers = users[channelId] || [];
                     const userCount = channelUsers.length;
                     const isActive = userCount > 0;
+                    const channelServers = servers[channelId] || [];
 
                     channelsHtml += `
                         <div class="patch-item" style="border-left-color: ${isActive ? '#48bb78' : '#a0aec0'};">
@@ -1142,7 +1195,11 @@
                             </div>
                             <div class="patch-connections">
                                 <strong>Status:</strong> ${isActive ? 'Active' : 'Inactive'}<br>
-                                <strong>Channel ID:</strong> <span class="connection-badge">${channelData.channel_id}</span>
+                                <strong>Channel ID:</strong> <span class="connection-badge">${channelData.channel_id}</span><br>
+                                <strong>Server(s):</strong> ${channelServers.length > 0 ? 
+                                    channelServers.map(server => `<span class="connection-badge">${server}</span>`).join('') : 
+                                    '<span class="connection-badge" style="background: #fed7d7; color: #c53030;">No server assigned</span>'
+                                }
                                 ${userCount > 0 ? `
                                     <br><br><strong>Connected Users:</strong><br>
                                     ${channelUsers.map(user => 
