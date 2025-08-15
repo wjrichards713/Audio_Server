@@ -639,6 +639,41 @@
             background: #fef5e7;
             color: #c05621;
         }
+
+        .redis-node-info {
+            margin-top: 12px;
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .redis-node-info div {
+            margin-bottom: 4px;
+        }
+
+        .redis-status-online {
+            border-left-color: #48bb78 !important;
+        }
+
+        .redis-status-offline {
+            border-left-color: #f56565 !important;
+        }
+
+        .redis-connection-success {
+            padding: 16px;
+            background: #c6f6d5;
+            border-radius: 12px;
+            border-left: 4px solid #48bb78;
+            color: #22543d;
+            margin-top: 16px;
+        }
+
+        .redis-connection-error {
+            padding: 16px;
+            background: #fed7d7;
+            border-radius: 12px;
+            border-left: 4px solid #f56565;
+            color: #c53030;
+        }
     </style>
 </head>
 
@@ -697,6 +732,7 @@
             <div class="tab" onclick="switchTab('users')">👥 Users</div>
             <div class="tab" onclick="switchTab('channels')">📢 Channels</div>
             <div class="tab" onclick="switchTab('servers')">🖥️ Servers</div>
+            <div class="tab" onclick="switchTab('redis')">🔴 Redis</div>
         </div>
 
         <div id="overview-tab" class="tab-content active">
@@ -742,6 +778,23 @@
 
         <div id="servers-tab" class="tab-content">
             <div class="detailed-servers" id="detailedServers"></div>
+        </div>
+
+        <div id="redis-tab" class="tab-content">
+            <div class="content-grid">
+                <div class="panel">
+                    <h2>🔴 Redis Sentinel Masters</h2>
+                    <div id="redisMasters"></div>
+                </div>
+                <div class="panel">
+                    <h2>🔗 Redis Sentinel Slaves</h2>
+                    <div id="redisSlaves"></div>
+                </div>
+            </div>
+            <div class="panel" style="margin-top: 20px;">
+                <h2>📊 Redis Connection Status</h2>
+                <div id="redisConnectionInfo"></div>
+            </div>
         </div>
     </div>
 
@@ -866,6 +919,7 @@
             updatePatchesList(data);
             updateDetailedServers(data);
             updateQuickStats(data);
+            updateRedisTab(data);
         }
 
         function updateServerOverview(data) {
@@ -1340,6 +1394,215 @@
             element.classList.toggle('open');
             const arrow = element.querySelector('.collapsible-header span:last-child');
             arrow.textContent = element.classList.contains('open') ? '▲' : '▼';
+        }
+
+        function updateRedisTab(data) {
+            const redisData = data.redis || {};
+            const mastersContainer = document.getElementById('redisMasters');
+            const slavesContainer = document.getElementById('redisSlaves');
+            const connectionInfoContainer = document.getElementById('redisConnectionInfo');
+
+            // Handle connection errors
+            if (redisData.error) {
+                mastersContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">⚠️</div>
+                        <h3>Connection Error</h3>
+                        <p>Failed to connect to Redis Sentinel: ${redisData.error}</p>
+                    </div>
+                `;
+                slavesContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">⚠️</div>
+                        <h3>Connection Error</h3>
+                        <p>Redis Sentinel data unavailable</p>
+                    </div>
+                `;
+                connectionInfoContainer.innerHTML = `
+                    <div class="redis-connection-error">
+                        <strong>⚠️ Redis Sentinel Error:</strong> ${redisData.error}
+                    </div>
+                `;
+                return;
+            }
+
+            // Update Masters
+            let mastersHtml = '';
+            if (!redisData.masters || redisData.masters.length === 0) {
+                mastersHtml = `
+                    <div class="empty-state">
+                        <div class="icon">🔴</div>
+                        <h3>No Masters Found</h3>
+                        <p>No Redis masters are currently available</p>
+                    </div>
+                `;
+            } else {
+                redisData.masters.forEach(master => {
+                    if (Array.isArray(master)) {
+                        // Parse Redis Sentinel response format
+                        const masterInfo = {};
+                        for (let i = 0; i < master.length; i += 2) {
+                            masterInfo[master[i]] = master[i + 1];
+                        }
+                        
+                        const isOnline = masterInfo.flags === 'master';
+                        const statusClass = isOnline ? 'active' : 'error';
+                        const statusText = isOnline ? 'Online' : masterInfo.flags || 'Unknown';
+                        
+                        // Calculate time since role was last reported
+                        let uptimeDisplay = 'Unknown';
+                        if (masterInfo['role-reported-time']) {
+                            const roleReportedMs = parseInt(masterInfo['role-reported-time']);
+                            if (!isNaN(roleReportedMs)) {
+                                const roleReportedSeconds = Math.floor(roleReportedMs / 1000);
+                                uptimeDisplay = formatRelativeTime(roleReportedSeconds);
+                            }
+                        }
+
+                        mastersHtml += `
+                            <div class="server-item ${statusClass}">
+                                <div class="server-header">
+                                    <div class="server-ip">🔴 ${masterInfo.name}</div>
+                                    <div class="server-status-badge ${statusClass}">${statusText}</div>
+                                </div>
+                                <div class="server-metrics">
+                                    <div class="metric">
+                                        <div class="metric-value">${masterInfo.ip || 'Unknown'}</div>
+                                        <div>IP Address</div>
+                                    </div>
+                                    <div class="metric">
+                                        <div class="metric-value">${masterInfo.port || 'Unknown'}</div>
+                                        <div>Port</div>
+                                    </div>
+                                    <div class="metric">
+                                        <div class="metric-value">${masterInfo['num-slaves'] || '0'}</div>
+                                        <div>Slaves</div>
+                                    </div>
+                                    <div class="metric">
+                                        <div class="metric-value">${masterInfo['num-other-sentinels'] || '0'}</div>
+                                        <div>Other Sentinels</div>
+                                    </div>
+                                </div>
+                                <div class="redis-node-info">
+                                    <div><strong>Runid:</strong> ${masterInfo.runid || 'Unknown'}</div>
+                                    <div><strong>Last OK Ping:</strong> ${masterInfo['last-ok-ping-reply'] || 'Unknown'}ms ago</div>
+                                    <div><strong>Role Reported:</strong> ${uptimeDisplay} ago</div>
+                                    <div><strong>Quorum:</strong> ${masterInfo.quorum || 'Unknown'}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+            }
+            mastersContainer.innerHTML = mastersHtml;
+
+            // Update Slaves
+            let slavesHtml = '';
+            if (!redisData.slaves || redisData.slaves.length === 0) {
+                slavesHtml = `
+                    <div class="empty-state">
+                        <div class="icon">🔗</div>
+                        <h3>No Slaves Found</h3>
+                        <p>No Redis slaves are currently available</p>
+                    </div>
+                `;
+            } else {
+                redisData.slaves.forEach(slave => {
+                    if (Array.isArray(slave)) {
+                        // Parse Redis Sentinel response format
+                        const slaveInfo = {};
+                        for (let i = 0; i < slave.length; i += 2) {
+                            slaveInfo[slave[i]] = slave[i + 1];
+                        }
+                        
+                        const isOnline = slaveInfo.flags === 'slave';
+                        const statusClass = isOnline ? 'active' : 'error';
+                        const statusText = isOnline ? 'Online' : slaveInfo.flags || 'Unknown';
+                        
+                        // Calculate time since role was last reported
+                        let uptimeDisplay = 'Unknown';
+                        if (slaveInfo['role-reported-time']) {
+                            const roleReportedMs = parseInt(slaveInfo['role-reported-time']);
+                            if (!isNaN(roleReportedMs)) {
+                                const roleReportedSeconds = Math.floor(roleReportedMs / 1000);
+                                uptimeDisplay = formatRelativeTime(roleReportedSeconds);
+                            }
+                        }
+
+                        slavesHtml += `
+                            <div class="server-item ${statusClass}">
+                                <div class="server-header">
+                                    <div class="server-ip">🔗 ${slaveInfo.name}</div>
+                                    <div class="server-status-badge ${statusClass}">${statusText}</div>
+                                </div>
+                                <div class="server-metrics">
+                                    <div class="metric">
+                                        <div class="metric-value">${slaveInfo.ip || 'Unknown'}</div>
+                                        <div>IP Address</div>
+                                    </div>
+                                    <div class="metric">
+                                        <div class="metric-value">${slaveInfo.port || 'Unknown'}</div>
+                                        <div>Port</div>
+                                    </div>
+                                    <div class="metric">
+                                        <div class="metric-value">${slaveInfo.priority || 'Unknown'}</div>
+                                        <div>Priority</div>
+                                    </div>
+                                    <div class="metric">
+                                        <div class="metric-value">${slaveInfo['master-link-status'] || 'Unknown'}</div>
+                                        <div>Link Status</div>
+                                    </div>
+                                </div>
+                                <div class="redis-node-info">
+                                    <div><strong>Runid:</strong> ${slaveInfo.runid || 'Unknown'}</div>
+                                    <div><strong>Last OK Ping:</strong> ${slaveInfo['last-ok-ping-reply'] || 'Unknown'}ms ago</div>
+                                    <div><strong>Role Reported:</strong> ${uptimeDisplay} ago</div>
+                                    <div><strong>Master Link Down Time:</strong> ${slaveInfo['master-link-down-time'] || '0'}ms</div>
+                                    <div><strong>Replica Priority:</strong> ${slaveInfo['slave-priority'] || 'Unknown'}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+            }
+            slavesContainer.innerHTML = slavesHtml;
+
+            // Update Connection Info
+            let connectionHtml = '';
+            if (redisData.masters || redisData.slaves) {
+                const mastersCount = redisData.masters ? redisData.masters.length : 0;
+                const slavesCount = redisData.slaves ? redisData.slaves.length : 0;
+                
+                connectionHtml = `
+                    <div class="server-overview">
+                        <div class="overview-item">
+                            <div class="number">${mastersCount}</div>
+                            <div class="text">Redis Masters</div>
+                        </div>
+                        <div class="overview-item">
+                            <div class="number">${slavesCount}</div>
+                            <div class="text">Redis Slaves</div>
+                        </div>
+                        <div class="overview-item">
+                            <div class="number">${mastersCount + slavesCount}</div>
+                            <div class="text">Total Redis Nodes</div>
+                        </div>
+                    </div>
+                    <div class="redis-connection-success">
+                        <strong>✅ Redis Sentinel Status:</strong> Successfully connected to Redis Sentinel and retrieved cluster information.
+                    </div>
+                `;
+            } else {
+                connectionHtml = `
+                    <div class="empty-state">
+                        <div class="icon">🔴</div>
+                        <h3>No Redis Data</h3>
+                        <p>No Redis Sentinel data available</p>
+                    </div>
+                `;
+            }
+            
+            connectionInfoContainer.innerHTML = connectionHtml;
         }
 
         function setupAutoRefresh() {

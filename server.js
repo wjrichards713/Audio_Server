@@ -37,11 +37,11 @@ global.serverPublicIP = null;
 })();
 
 // Setup Redis connections
-const { redis, publisher, subscriber } = redisSetup();
+const { redis, publisher, subscriber, sentinelClient } = redisSetup();
 
 // Routes
 app.use('/channels', createChannelRoutes(redis, publisher));
-app.use('/', createSystemRoutes(redis));
+app.use('/', createSystemRoutes(redis, sentinelClient));
 
 // WebSocket server
 const wss = new WebSocket.Server({ port: 3001 }, () => {

@@ -73,6 +73,16 @@ function setupRedis() {
   const publisher = redis.duplicate();
   const subscriber = redis.duplicate();
 
+  // Sentinel client for querying sentinel info
+  const sentinelClient = new Redis({
+    host: parseSentinels(process.env.REDIS_SENTINELS)[0].host,
+    port: parseSentinels(process.env.REDIS_SENTINELS)[0].port,
+    password: process.env.SENTINEL_PASS,
+    username: process.env.SENTINEL_USER,
+    connectTimeout: 5000,
+    retryDelayOnFailover: 100
+  });
+
   // // Add sentinel-specific logging for all clients
   // for (const [name, client] of [
   //   ["redis", redis],
@@ -178,7 +188,7 @@ function setupRedis() {
     }
   });
 
-  return { redis, publisher, subscriber, redis_channel_subscriptions };
+  return { redis, publisher, subscriber, sentinelClient, redis_channel_subscriptions };
 }
 
 module.exports = setupRedis;
