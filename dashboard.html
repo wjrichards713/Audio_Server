@@ -732,6 +732,7 @@
             <div class="tab" onclick="switchTab('users')">👥 Users</div>
             <div class="tab" onclick="switchTab('channels')">📢 Channels</div>
             <div class="tab" onclick="switchTab('servers')">🖥️ Servers</div>
+            <div class="tab" onclick="switchTab('streaming')">🎵 Streaming</div>
             <div class="tab" onclick="switchTab('redis')">🔴 Redis</div>
         </div>
 
@@ -778,6 +779,14 @@
 
         <div id="servers-tab" class="tab-content">
             <div class="detailed-servers" id="detailedServers"></div>
+        </div>
+
+        <div id="streaming-tab" class="tab-content">
+            <div class="panel">
+                <h2>🎵 Streaming Server Statistics</h2>
+                <div id="streamingOverview"></div>
+                <div id="streamingDetails"></div>
+            </div>
         </div>
 
         <div id="redis-tab" class="tab-content">
@@ -833,6 +842,20 @@
             if (parts.length === 0) parts.push(`${remainingSeconds}s`);
             
             return parts.join(' ');
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return 'Unknown';
+            const date = new Date(timestamp);
+            return date.toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            });
         }
 
         async function fetchData(includeChannels = false) {
@@ -919,6 +942,7 @@
             updatePatchesList(data);
             updateDetailedServers(data);
             updateQuickStats(data);
+            updateStreamingTab(data);
             updateRedisTab(data);
         }
 
@@ -1660,6 +1684,110 @@
             }
             
             connectionInfoContainer.innerHTML = connectionHtml;
+        }
+
+        function updateStreamingTab(data) {
+            const overviewContainer = document.getElementById('streamingOverview');
+            const detailsContainer = document.getElementById('streamingDetails');
+            const streamingStatuses = data.streamingStatuses || {};
+
+            // Handle empty streaming data
+            if (Object.keys(streamingStatuses).length === 0) {
+                overviewContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">🎵</div>
+                        <h3>No Streaming Data</h3>
+                        <p>No streaming server statistics available</p>
+                    </div>
+                `;
+                detailsContainer.innerHTML = '';
+                return;
+            }
+
+            let overviewHtml = '';
+            let detailsHtml = '';
+
+            // Process each streaming status entry
+            Object.entries(streamingStatuses).forEach(([key, streamData]) => {
+                if (!streamData || typeof streamData !== 'object') return;
+
+                const totalClients = streamData.totalConnectedClients || 0;
+                const connectedClients = streamData.connectedClients || {};
+                const channelStats = streamData.channelStats || {};
+                const updatedAt = streamData.updatedAt;
+                const lastUpdate = formatTimestamp(updatedAt);
+
+                // Overview section
+                overviewHtml += `
+                    <div class="server-overview">
+                        <div class="overview-item">
+                            <div class="number">${totalClients}</div>
+                            <div class="text">Total Connected Clients</div>
+                        </div>
+                        <div class="overview-item">
+                            <div class="number">${Object.keys(connectedClients).length}</div>
+                            <div class="text">Active Channels</div>
+                        </div>
+                        <div class="overview-item">
+                            <div class="number">${Object.values(channelStats).reduce((sum, count) => sum + count, 0)}</div>
+                            <div class="text">Channel Connections</div>
+                        </div>
+                        <div class="overview-item">
+                            <div class="number" style="font-size: 0.9rem;">${lastUpdate}</div>
+                            <div class="text">Last Updated</div>
+                        </div>
+                    </div>
+                `;
+
+                // Detailed channel breakdown
+                detailsHtml += `
+                    <div style="margin-top: 20px;">
+                        <h3 style="color: #4a5568; margin-bottom: 16px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                            📊 Channel Details (${key})
+                        </h3>
+                `;
+
+                if (Object.keys(connectedClients).length > 0) {
+                    Object.entries(connectedClients).forEach(([channelId, clients]) => {
+                        const clientCount = Array.isArray(clients) ? clients.length : 0;
+                        const statsCount = channelStats[channelId] || 0;
+
+                        detailsHtml += `
+                            <div class="server-item active" style="border-left-color: #9f7aea;">
+                                <div class="server-header">
+                                    <div class="server-ip">🎵 Channel: ${channelId}</div>
+                                    <div class="server-status-badge active">${clientCount} client(s)</div>
+                                </div>
+                                <div class="server-metrics">
+                                    <div class="metric">
+                                        <div class="metric-value">${clientCount}</div>
+                                        <div>Connected Clients</div>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 8px; font-size: 0.9rem;">
+                                    <strong>Client IDs:</strong><br>
+                                    ${Array.isArray(clients) ? clients.map(client => 
+                                        `<span class="connection-badge" style="background: #e6fffa; color: #234e52; margin: 2px;">Client ${client.clientId}</span>`
+                                    ).join('') : 'No client data'}
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    detailsHtml += `
+                        <div class="empty-state">
+                            <div class="icon">🎵</div>
+                            <h3>No Active Channels</h3>
+                            <p>No channels currently have connected streaming clients</p>
+                        </div>
+                    `;
+                }
+
+                detailsHtml += `</div>`;
+            });
+
+            overviewContainer.innerHTML = overviewHtml;
+            detailsContainer.innerHTML = detailsHtml;
         }
 
         function setupAutoRefresh() {

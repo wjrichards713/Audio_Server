@@ -43,6 +43,20 @@ function createSystemRoutes(redis, sentinelClient) {
     try {
       // Get all server statuses from Redis hash
       const rawStatuses = await redis.hgetall("server_status");
+      const streamingStatuses = await redis.hgetall("streaming_server_stats");
+
+      console.log("streamingStatuses:", streamingStatuses);
+      
+      // Parse streaming statuses
+      const parsedStreamingStatuses = {};
+      for (const [key, jsonData] of Object.entries(streamingStatuses)) {
+        try {
+          parsedStreamingStatuses[key] = JSON.parse(jsonData);
+        } catch (err) {
+          console.error(`Error parsing streaming status for key ${key}:`, err);
+          parsedStreamingStatuses[key] = { error: "Invalid JSON in streaming status" };
+        }
+      }
       
       // Clean up old entries (older than 5 minutes)
       const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
@@ -109,12 +123,13 @@ function createSystemRoutes(redis, sentinelClient) {
         servers: global.servers,
         patches: global.patches,
         statuses, // array of all server status objects
+        streamingStatuses: parsedStreamingStatuses, // parsed streaming server stats
         redis: redisError ? {
           error: redisError
         } : {
           masters: masters,
           slaves: slaves
-        }               
+        }
       };
 
       res.json(response);
