@@ -5,676 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Audio Server Dashboard</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: #333;
-        }
-
-        .dashboard {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            color: white;
-        }
-
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        .header .subtitle {
-            font-size: 1.1rem;
-            opacity: 0.9;
-            margin-bottom: 20px;
-        }
-
-        .status-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: rgba(255, 255, 255, 0.2);
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 0.9rem;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #48bb78;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        .auto-refresh {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            margin-top: 15px;
-            padding: 10px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            max-width: 300px;
-            margin: 15px auto 0;
-        }
-
-        .auto-refresh input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-        }
-
-        .auto-refresh label {
-            color: white;
-            cursor: pointer;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 40px;
-        }
-
-        .stat-card {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 16px;
-            padding: 24px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            transition: all 0.3s ease;
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: linear-gradient(90deg, #4299e1, #48bb78);
-        }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
-        }
-
-        .stat-card .icon {
-            font-size: 2.5rem;
-            margin-bottom: 12px;
-            opacity: 0.8;
-        }
-
-        .stat-card h3 {
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #666;
-            margin-bottom: 8px;
-            font-weight: 600;
-        }
-
-        .stat-card .value {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: #2d3748;
-            margin-bottom: 8px;
-            line-height: 1;
-        }
-
-        .stat-card .label {
-            font-size: 0.9rem;
-            color: #718096;
-        }
-
-        .tabs {
-            display: flex;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            padding: 4px;
-            margin-bottom: 20px;
-            backdrop-filter: blur(10px);
-        }
-
-        .tab {
-            flex: 1;
-            padding: 12px 20px;
-            text-align: center;
-            color: rgba(255, 255, 255, 0.7);
-            cursor: pointer;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-            font-weight: 500;
-        }
-
-        .tab.active {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        .content-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        @media (max-width: 768px) {
-            .content-grid {
-                grid-template-columns: 1fr;
-            }
-            .stats-grid {
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            }
-        }
-
-        .panel {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 16px;
-            padding: 24px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .panel h2 {
-            margin-bottom: 20px;
-            color: #2d3748;
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 12px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 1.3rem;
-        }
-
-        .server-overview {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .overview-item {
-            text-align: center;
-            padding: 16px;
-            background: #f8fafc;
-            border-radius: 12px;
-            border-left: 4px solid #4299e1;
-        }
-
-        .overview-item .number {
-            font-size: 1.8rem;
-            font-weight: bold;
-            color: #2d3748;
-            margin-bottom: 4px;
-        }
-
-        .overview-item .text {
-            font-size: 0.85rem;
-            color: #718096;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .server-list {
-            display: grid;
-            gap: 12px;
-        }
-
-        .server-item {
-            padding: 16px;
-            background: #f8fafc;
-            border-radius: 12px;
-            border-left: 4px solid #48bb78;
-            transition: all 0.3s ease;
-        }
-
-        .server-item:hover {
-            background: #edf2f7;
-            transform: translateX(4px);
-        }
-
-        .server-item.idle {
-            border-left-color: #a0aec0;
-        }
-
-        .server-item.error {
-            border-left-color: #f56565;
-        }
-
-        .server-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-
-        .server-ip {
-            font-weight: 600;
-            color: #2d3748;
-            font-size: 1rem;
-        }
-
-        .server-status-badge {
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .server-status-badge.active {
-            background: #c6f6d5;
-            color: #22543d;
-        }
-
-        .server-status-badge.idle {
-            background: #e2e8f0;
-            color: #4a5568;
-        }
-
-        .server-status-badge.error {
-            background: #fed7d7;
-            color: #c53030;
-        }
-
-        .server-metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-            gap: 12px;
-            font-size: 0.85rem;
-            color: #718096;
-        }
-
-        .metric {
-            text-align: center;
-        }
-
-        .metric-value {
-            font-weight: 600;
-            color: #4a5568;
-            margin-bottom: 2px;
-        }
-
-        .users-section {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .channel-filter {
-            margin-bottom: 16px;
-        }
-
-        .channel-filter input {
-            width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            transition: border-color 0.3s ease;
-        }
-
-        .channel-filter input:focus {
-            outline: none;
-            border-color: #4299e1;
-            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 40px 20px;
-            color: #718096;
-        }
-
-        .empty-state .icon {
-            font-size: 3rem;
-            margin-bottom: 16px;
-            opacity: 0.5;
-        }
-
-        .empty-state h3 {
-            margin-bottom: 8px;
-            color: #4a5568;
-        }
-
-        .user-item {
-            padding: 16px;
-            margin-bottom: 12px;
-            background: #f8fafc;
-            border-radius: 12px;
-            border-left: 4px solid #4299e1;
-            transition: all 0.3s ease;
-        }
-
-        .user-item:hover {
-            background: #edf2f7;
-            transform: translateX(4px);
-        }
-
-        .user-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-
-        .user-name {
-            font-weight: 600;
-            color: #2d3748;
-        }
-
-        .user-agency {
-            font-size: 0.8rem;
-            color: #718096;
-            background: #e2e8f0;
-            padding: 2px 8px;
-            border-radius: 8px;
-        }
-
-        .user-details {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 8px;
-            font-size: 0.85rem;
-            color: #718096;
-        }
-
-        .patch-item {
-            padding: 16px;
-            margin-bottom: 12px;
-            background: #f8fafc;
-            border-radius: 12px;
-            border-left: 4px solid #9f7aea;
-            transition: all 0.3s ease;
-        }
-
-        .patch-item:hover {
-            background: #edf2f7;
-            transform: translateX(4px);
-        }
-
-        .patch-header {
-            font-weight: 600;
-            color: #2d3748;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: between;
-            align-items: center;
-        }
-
-        .patch-connections {
-            font-size: 0.85rem;
-            color: #718096;
-        }
-
-        .connection-badge {
-            display: inline-block;
-            background: #e6fffa;
-            color: #234e52;
-            padding: 2px 8px;
-            margin: 2px;
-            border-radius: 6px;
-            font-size: 0.75rem;
-        }
-
-        .refresh-btn {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #4299e1, #48bb78);
-            color: white;
-            border: none;
-            cursor: pointer;
-            box-shadow: 0 8px 24px rgba(66, 153, 225, 0.4);
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.4rem;
-            z-index: 1000;
-        }
-
-        .refresh-btn:hover {
-            transform: scale(1.1);
-            box-shadow: 0 12px 32px rgba(66, 153, 225, 0.6);
-        }
-
-        .refresh-btn.loading {
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        .error-message {
-            background: #fed7d7;
-            border: 1px solid #feb2b2;
-            color: #c53030;
-            padding: 16px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            display: none;
-            text-align: center;
-        }
-
-        .detailed-servers {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 20px;
-        }
-
-        .detailed-server-card {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 16px;
-            padding: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            transition: transform 0.3s ease;
-        }
-
-        .detailed-server-card:hover {
-            transform: translateY(-4px);
-        }
-
-        .detailed-server-card.active {
-            border-left: 4px solid #48bb78;
-        }
-
-        .detailed-server-card.idle {
-            border-left: 4px solid #a0aec0;
-        }
-
-        .detailed-server-card.error {
-            border-left: 4px solid #f56565;
-        }
-
-        .server-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .server-card-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: #2d3748;
-        }
-
-        .system-metrics-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-
-        .system-metric {
-            text-align: center;
-            padding: 12px;
-            background: #f8fafc;
-            border-radius: 8px;
-        }
-
-        .system-metric .value {
-            font-size: 1.4rem;
-            font-weight: bold;
-            color: #4a5568;
-            margin-bottom: 4px;
-        }
-
-        .system-metric .label {
-            font-size: 0.8rem;
-            color: #718096;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 6px;
-            background: #e2e8f0;
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 4px;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #4299e1, #48bb78);
-            border-radius: 3px;
-            transition: width 0.3s ease;
-        }
-
-        .collapsible {
-            margin-top: 12px;
-        }
-
-        .collapsible-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 0;
-            cursor: pointer;
-            color: #4a5568;
-            font-weight: 500;
-            font-size: 0.9rem;
-        }
-
-        .collapsible-content {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.3s ease;
-        }
-
-        .collapsible.open .collapsible-content {
-            max-height: 200px;
-        }
-
-        .cpu-cores-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
-            gap: 4px;
-            margin-top: 8px;
-        }
-
-        .cpu-core {
-            text-align: center;
-            padding: 4px;
-            background: #e2e8f0;
-            border-radius: 4px;
-            font-size: 0.7rem;
-            color: #4a5568;
-        }
-
-        .cpu-core.high {
-            background: #fed7d7;
-            color: #c53030;
-        }
-
-        .cpu-core.medium {
-            background: #fef5e7;
-            color: #c05621;
-        }
-
-        .redis-node-info {
-            margin-top: 12px;
-            font-size: 0.85rem;
-            color: #666;
-        }
-
-        .redis-node-info div {
-            margin-bottom: 4px;
-        }
-
-        .redis-status-online {
-            border-left-color: #48bb78 !important;
-        }
-
-        .redis-status-offline {
-            border-left-color: #f56565 !important;
-        }
-
-        .redis-connection-success {
-            padding: 16px;
-            background: #c6f6d5;
-            border-radius: 12px;
-            border-left: 4px solid #48bb78;
-            color: #22543d;
-            margin-top: 16px;
-        }
-
-        .redis-connection-error {
-            padding: 16px;
-            background: #fed7d7;
-            border-radius: 12px;
-            border-left: 4px solid #f56565;
-            color: #c53030;
-        }
-    </style>
+    <link rel="stylesheet" href="index.css">
 </head>
 
 <body>
@@ -1704,87 +1035,146 @@
                 return;
             }
 
-            let overviewHtml = '';
-            let detailsHtml = '';
+            // Calculate overview statistics
+            let totalClients = 0;
+            let totalChannels = 0;
+            let totalConnections = 0;
+            let activeServers = 0;
 
-            // Process each streaming status entry
-            Object.entries(streamingStatuses).forEach(([key, streamData]) => {
+            Object.values(streamingStatuses).forEach(streamData => {
+                if (streamData && typeof streamData === 'object') {
+                    totalClients += streamData.totalConnectedClients || 0;
+                    totalChannels += Object.keys(streamData.connectedClients || {}).length;
+                    totalConnections += Object.values(streamData.channelStats || {}).reduce((sum, count) => sum + count, 0);
+                    if ((streamData.totalConnectedClients || 0) > 0) {
+                        activeServers++;
+                    }
+                }
+            });
+
+            // Overview section
+            let overviewHtml = `
+                <div class="server-overview">
+                    <div class="overview-item">
+                        <div class="number">${Object.keys(streamingStatuses).length}</div>
+                        <div class="text">Streaming Servers</div>
+                    </div>
+                    <div class="overview-item">
+                        <div class="number">${activeServers}</div>
+                        <div class="text">Active Servers</div>
+                    </div>
+                    <div class="overview-item">
+                        <div class="number">${totalClients}</div>
+                        <div class="text">Total Clients</div>
+                    </div>
+                    <div class="overview-item">
+                        <div class="number">${totalChannels}</div>
+                        <div class="text">Active Channels</div>
+                    </div>
+                </div>
+            `;
+
+            // Server-wise detailed breakdown
+            let detailsHtml = `
+                <div style="margin-top: 20px;">
+                    <h3 style="color: #4a5568; margin-bottom: 16px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                        🖥️ Server-wise Streaming Statistics
+                    </h3>
+                    <div class="streaming-servers-grid">
+            `;
+
+            // Process each streaming server
+            Object.entries(streamingStatuses).forEach(([serverKey, streamData]) => {
                 if (!streamData || typeof streamData !== 'object') return;
 
+                const serverIP = streamData.serverIP || 'Unknown';
                 const totalClients = streamData.totalConnectedClients || 0;
                 const connectedClients = streamData.connectedClients || {};
                 const channelStats = streamData.channelStats || {};
                 const updatedAt = streamData.updatedAt;
                 const lastUpdate = formatTimestamp(updatedAt);
+                
+                // Determine server status
+                const isActive = totalClients > 0;
+                const statusClass = isActive ? 'active' : 'idle';
+                const statusText = isActive ? 'Active' : 'Idle';
 
-                // Overview section
-                overviewHtml += `
-                    <div class="server-overview">
-                        <div class="overview-item">
-                            <div class="number">${totalClients}</div>
-                            <div class="text">Total Connected Clients</div>
-                        </div>
-                        <div class="overview-item">
-                            <div class="number">${Object.keys(connectedClients).length}</div>
-                            <div class="text">Active Channels</div>
-                        </div>
-                        <div class="overview-item">
-                            <div class="number">${Object.values(channelStats).reduce((sum, count) => sum + count, 0)}</div>
-                            <div class="text">Channel Connections</div>
-                        </div>
-                        <div class="overview-item">
-                            <div class="number" style="font-size: 0.9rem;">${lastUpdate}</div>
-                            <div class="text">Last Updated</div>
-                        </div>
-                    </div>
-                `;
-
-                // Detailed channel breakdown
                 detailsHtml += `
-                    <div style="margin-top: 20px;">
-                        <h3 style="color: #4a5568; margin-bottom: 16px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-                            📊 Channel Details (${key})
-                        </h3>
+                    <div class="detailed-server-card ${statusClass}">
+                        <div class="server-card-header">
+                            <div class="server-card-title">🖥️ ${serverIP}</div>
+                            <div class="server-status-badge ${statusClass}">${statusText}</div>
+                        </div>
+                        
+                        <div class="system-metrics-grid">
+                            <div class="system-metric">
+                                <div class="value">${totalClients}</div>
+                                <div class="label">Total Clients</div>
+                            </div>
+                            <div class="system-metric">
+                                <div class="value">${Object.keys(connectedClients).length}</div>
+                                <div class="label">Active Channels</div>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 12px; font-size: 0.8rem; color: #666; text-align: center;">
+                            🕒 Last Updated: ${lastUpdate}
+                        </div>
                 `;
 
+                // Show channels and their clients
                 if (Object.keys(connectedClients).length > 0) {
+                    detailsHtml += `
+                        <div style="margin-top: 16px;">
+                            <h4 style="color: #4a5568; margin-bottom: 8px; font-size: 0.9rem;">📢 Active Channels</h4>
+                    `;
+
                     Object.entries(connectedClients).forEach(([channelId, clients]) => {
                         const clientCount = Array.isArray(clients) ? clients.length : 0;
                         const statsCount = channelStats[channelId] || 0;
 
                         detailsHtml += `
-                            <div class="server-item active" style="border-left-color: #9f7aea;">
-                                <div class="server-header">
-                                    <div class="server-ip">🎵 Channel: ${channelId}</div>
-                                    <div class="server-status-badge active">${clientCount} client(s)</div>
+                            <div style="margin-bottom: 8px; padding: 8px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #9f7aea;">
+                                <div style="font-weight: 600; margin-bottom: 4px; color: #553c9a;">
+                                    🎵 Channel ${channelId}
+                                    <span style="background: #e6fffa; color: #234e52; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; margin-left: 8px;">
+                                        ${clientCount} clients
+                                    </span>
                                 </div>
-                                <div class="server-metrics">
-                                    <div class="metric">
-                                        <div class="metric-value">${clientCount}</div>
-                                        <div>Connected Clients</div>
-                                    </div>
-                                </div>
-                                <div style="margin-top: 8px; font-size: 0.9rem;">
-                                    <strong>Client IDs:</strong><br>
-                                    ${Array.isArray(clients) ? clients.map(client => 
-                                        `<span class="connection-badge" style="background: #e6fffa; color: #234e52; margin: 2px;">Client ${client.clientId}</span>`
-                                    ).join('') : 'No client data'}
+                                <div style="font-size: 0.8rem; color: #666;">
+                                    <strong>Connected Clients:</strong><br>
+                                    ${Array.isArray(clients) && clients.length > 0 ? 
+                                        clients.map(client => 
+                                            `<span class="connection-badge" style="background: #e6fffa; color: #234e52; margin: 2px; font-size: 0.75rem;">
+                                                Client ${client.clientId !== undefined ? client.clientId : 'Unknown'}
+                                            </span>`
+                                        ).join('') : 
+                                        '<span style="color: #a0aec0; font-style: italic;">No clients connected</span>'
+                                    }
                                 </div>
                             </div>
                         `;
                     });
+
+                    detailsHtml += `</div>`;
+                } else if (isActive) {
+                    detailsHtml += `
+                        <div style="margin-top: 16px; text-align: center; color: #718096; font-style: italic; padding: 20px;">
+                            Server has clients but no channel data available
+                        </div>
+                    `;
                 } else {
                     detailsHtml += `
-                        <div class="empty-state">
-                            <div class="icon">🎵</div>
-                            <h3>No Active Channels</h3>
-                            <p>No channels currently have connected streaming clients</p>
+                        <div style="margin-top: 16px; text-align: center; color: #718096; font-style: italic; padding: 20px;">
+                            No active streaming sessions
                         </div>
                     `;
                 }
 
                 detailsHtml += `</div>`;
             });
+
+            detailsHtml += `</div></div>`;
 
             overviewContainer.innerHTML = overviewHtml;
             detailsContainer.innerHTML = detailsHtml;
