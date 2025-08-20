@@ -57,10 +57,10 @@ async function getRegion() {
 
 const getChannel = async (redis, id) => JSON.parse(await redis.hget('channels', id) || 'null');
 
-async function terminateByPublicIp({ region, publicIp }) {
+async function terminateByPublicIp(region, publicIp) {
   console.log(region, publicIp);
   
-  // if (!region || !publicIp) throw new Error("region and publicIp are required");
+  if (!region || !publicIp) throw new Error("region and publicIp are required");
 
   const ec2 = new EC2Client({ region });
 
