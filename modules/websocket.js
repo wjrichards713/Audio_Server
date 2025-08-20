@@ -192,7 +192,7 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
         return;
       }
       case 'terminations': {
-        // console.log(global.serverPublicIP, data, "global.serverPublicIP == data", typeof(global.serverPublicIP), typeof(data), global.serverPublicIP == data);
+        console.log(global.serverPublicIP, data, "global.serverPublicIP == data", typeof(global.serverPublicIP), typeof(data), global.serverPublicIP == data);
 
         if (global.serverPublicIP == data) {
           console.log("processing detatch");
