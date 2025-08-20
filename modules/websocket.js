@@ -55,16 +55,6 @@ async function getRegion() {
 }
 
 
-
-// const getRegion = () => {
-//   const metadata = new MetadataService();
-//   metadata.request("/latest/meta-data/placement/region", (err, data) => {
-//     if (err) console.error(err);
-//     else console.log("Region:", data);
-//     return data;
-//   });
-// }
-
 const getChannel = async (redis, id) => JSON.parse(await redis.hget('channels', id) || 'null');
 
 async function terminateByPublicIp({ region, publicIp }) {
@@ -95,7 +85,7 @@ async function terminateByPublicIp({ region, publicIp }) {
 
 const detachInstance = async (publicIp) => {
 
-  const region = getRegion()
+  const region = await getRegion();
   // Initialize AWS clients - credentials should be provided via environment variables or IAM role
   const ec2Client = new EC2Client({ region: region });
   const autoScalingClient = new AutoScalingClient({ region: region });
@@ -166,7 +156,7 @@ const detachInstance = async (publicIp) => {
   });
 }
 
-function startTermination(wss, time) {
+async function startTermination(wss, time) {
   console.log(wss.clients);
 
   var open_clients = Array.from(wss.clients).filter((client) => client.readyState === WebSocket.OPEN);
@@ -176,10 +166,12 @@ function startTermination(wss, time) {
       client.send(now - time > 60000 ? "terminated" : "terminating");
     })
     setTimeout(() => { startTermination(wss, time) }, 5000);
+    console.log("open_clients.length ",open_clients.length);
   }
   else {
     // aws terminate api call
-    const region = getRegion()
+    const region = await getRegion();
+    console.log("open_clients.length ", open_clients.length);
     terminateByPublicIp(region, global.serverPublicIP)
   }
 }
@@ -201,16 +193,15 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
       }
       case 'terminations': {
         console.log(global.serverPublicIP, data);
-        getRegion().then((region) => console.log("Region:", region));
-        console.log(global.serverPublicIP, data);
 
+        if (global.serverPublicIP == data) {
+          console.log("processing detatch");
+          
+          //detatch 
+          detachInstance(data)
 
-        // if (global.serverPublicIP == data) {
-        //   //detatch 
-        //   detachInstance(data)
-
-        //   startTermination(wss, Date.now());
-        // }
+          startTermination(wss, Date.now());
+        }
         return;
       }
       case 'patchings': {
