@@ -1,13 +1,35 @@
 const express = require('express');
 const os = require('os');
+const { SchedulerClient, CreateScheduleCommand } = require("@aws-sdk/client-scheduler");
 
-function createSystemRoutes(redis, sentinelClient) {
+
+function createSystemRoutes(redis, publisher, sentinelClient) {
   const router = express.Router();
-  
+
   // Store process start time
   const processStartTime = Date.now();
 
+  // let redisWritable = false;
+
+  // Check if Redis is writable before starting the interval
+  // redis.info('replication').then(info => {
+  //   redisWritable = !(info.includes('role:slave') || info.includes('role:replica'));
+  //   if (!redisWritable) {
+  //     console.warn("[system] Redis is read-only, server status updates disabled");
+  //   } else {
+  //     console.log("[system] Redis is writable, server status updates enabled");
+  //   }
+  // }).catch(err => {
+  //   console.error("[system] Failed to check Redis role:", err);
+  //   redisWritable = false;
+  // });
+
   setInterval(async () => {
+    // if (!redisWritable) {
+    //   return; // Skip if Redis is read-only
+    // }
+
+    // try {
     await redis.hset(`server_status`, `${global.serverPublicIP}`, JSON.stringify({
       ip: global.serverPublicIP,
       udpSockets: global.udpSockets,
@@ -36,6 +58,14 @@ function createSystemRoutes(redis, sentinelClient) {
       uptime: Math.floor((Date.now() - processStartTime) / 1000) + ' seconds',
       updatedAt: Date.now()
     }));
+    // } catch (err) {
+    //   if (err.message && err.message.includes('READONLY')) {
+    //     console.warn("[system] Redis became read-only, disabling server status updates");
+    //     redisWritable = false;
+    //   } else {
+    //     console.error("[system] Error updating server status:", err);
+    //   }
+    // }
   }, 1000);
 
   // Audio server connected users endpoint (original format)
@@ -46,7 +76,7 @@ function createSystemRoutes(redis, sentinelClient) {
       const streamingStatuses = await redis.hgetall("streaming_server_stats");
 
       console.log("streamingStatuses:", streamingStatuses);
-      
+
       // Parse streaming statuses
       const parsedStreamingStatuses = {};
       for (const [key, jsonData] of Object.entries(streamingStatuses)) {
@@ -57,11 +87,11 @@ function createSystemRoutes(redis, sentinelClient) {
           parsedStreamingStatuses[key] = { error: "Invalid JSON in streaming status" };
         }
       }
-      
+
       // Clean up old entries (older than 5 minutes)
       const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
       const entriesToDelete = [];
-      
+
       for (const [ip, jsonData] of Object.entries(rawStatuses)) {
         try {
           const data = JSON.parse(jsonData);
@@ -73,7 +103,7 @@ function createSystemRoutes(redis, sentinelClient) {
           entriesToDelete.push(ip);
         }
       }
-      
+
       // Remove old entries from Redis
       if (entriesToDelete.length > 0) {
         await redis.hdel("server_status", ...entriesToDelete);
@@ -108,13 +138,17 @@ function createSystemRoutes(redis, sentinelClient) {
       let masters = [];
       let slaves = [];
       let redisError = null;
-      
+
+      // if (sentinelClient) {
       try {
         masters = await sentinelClient.send_command("SENTINEL", ["masters"]);
         slaves = await sentinelClient.send_command("SENTINEL", ["slaves", process.env.REDIS_MASTER_NAME || "mymaster"]);
       } catch (redisErr) {
         redisError = redisErr.message;
         console.error('Redis Sentinel error:', redisErr);
+        //   }
+        // } else {
+        //   redisError = "Redis Sentinel not configured - using direct connection";
       }
 
       const response = {
@@ -134,7 +168,7 @@ function createSystemRoutes(redis, sentinelClient) {
 
       res.json(response);
     } catch (err) {
-      res.status(500).json({ 
+      res.status(500).json({
         error: err.message,
         redis: {
           error: err.message
@@ -156,6 +190,21 @@ function createSystemRoutes(redis, sentinelClient) {
   // Dashboard route
   router.get('/dashboard', (req, res) => {
     res.sendFile('dashboard.html', { root: '.' });
+  });
+
+  // EC2 instance detachment endpoint
+  router.get('/detach-instance/:ip', async (req, res) => {
+    try {
+      publisher.publish("terminations", req.params.ip);
+      res.json({"terminating": true})
+      return;
+    } catch (error) {
+      console.error('Error detaching EC2 instance:', error);
+      res.status(500).json({
+        error: `Failed to detach instance: ${error.message}`,
+        success: false
+      });
+    }
   });
 
   return router;

@@ -354,6 +354,9 @@
                             <div class="server-header">
                                 <div class="server-ip">${status.ip}</div>
                                 <div class="server-status-badge ${statusClass}">${statusText}</div>
+                                <button class="detach-btn" onclick="detachInstance('${status.ip}')" title="Detach from Auto Scaling Group">
+                                    🔗💥
+                                </button>
                             </div>
                             <div class="server-metrics">
                                 <div class="metric">
@@ -644,6 +647,9 @@
                             <div class="server-card-header">
                                 <div class="server-card-title">${server.ip}</div>
                                 <div class="server-status-badge ${statusClass}">${statusText}</div>
+                                <button class="detach-btn" onclick="detachInstance('${server.ip}')" title="Detach from Auto Scaling Group">
+                                    🔗💥
+                                </button>
                             </div>
                     `;
 
@@ -1205,6 +1211,40 @@
 
         // Store last data for filtering
         window.lastData = {};
+
+        // EC2 Instance detachment function
+        async function detachInstance(publicIp) {
+            if (!confirm(`Are you sure you want to detach the instance with IP ${publicIp} from its Auto Scaling Group?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/detach-instance/${publicIp}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    // body: JSON.stringify({
+                    //     publicIp: ,
+                    //     shouldDecrementDesiredCapacity: false
+                    // }),
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert(`✅ Success!\n\nInstance ${result.instanceId} has been detached from Auto Scaling Group "${result.autoScalingGroupName}".\n\nRegion: ${result.region}\nPublic IP: ${result.publicIp}`);
+                    
+                    // Refresh the dashboard to reflect changes
+                    fetchData(true);
+                } else {
+                    alert(`❌ Error: ${result.error}`);
+                }
+            } catch (error) {
+                console.error('Error detaching instance:', error);
+                alert(`❌ Failed to detach instance: ${error.message}`);
+            }
+        }
 
         // Initialize dashboard
         document.addEventListener('DOMContentLoaded', () => {

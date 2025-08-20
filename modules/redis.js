@@ -130,7 +130,7 @@ function setupRedis() {
   // }
 
   // Your subscriptions
-  const redis_channel_subscriptions = new Set(["server_channel_sync", "patchings"]);
+  const redis_channel_subscriptions = new Set(["server_channel_sync", "patchings", "terminations"]);
 
   // Subscribe once "subscriber" is ready; ioredis will auto-resubscribe after reconnects/failovers
   subscriber.on("ready", async () => {

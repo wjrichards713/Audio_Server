@@ -678,3 +678,48 @@ body {
         grid-template-columns: 1fr;
     }
 }
+
+.detach-btn {
+    background: linear-gradient(135deg, #f56565, #fc8181);
+    color: white;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    box-shadow: 0 2px 8px rgba(245, 101, 101, 0.3);
+    font-weight: 500;
+}
+
+.detach-btn:hover {
+    background: linear-gradient(135deg, #e53e3e, #f56565);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(245, 101, 101, 0.4);
+}
+
+.detach-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(245, 101, 101, 0.3);
+}
+
+.server-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    gap: 8px;
+}
+
+.server-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e2e8f0;
+    gap: 8px;
+}

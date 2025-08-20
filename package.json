@@ -9,6 +9,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-auto-scaling": "^3.864.0",
+    "@aws-sdk/client-ec2": "^3.871.0",
+    "@aws-sdk/client-scheduler": "^3.864.0",
+    "@aws-sdk/credential-provider-imds": "^3.370.0",
     "axios": "^1.7.9",
     "cors": "^2.8.5",
     "dgram": "^1.0.1",

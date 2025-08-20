@@ -1,8 +1,188 @@
 const WebSocket = require('ws');
 const { getPublicIP } = require('./utils');
 const { createSocket } = require('./udp');
+const { EC2Client, DescribeInstancesCommand, TerminateInstancesCommand } = require('@aws-sdk/client-ec2');
+const { AutoScalingClient, DetachInstancesCommand, DescribeAutoScalingInstancesCommand } = require('@aws-sdk/client-auto-scaling');
+const http =  require("http");
+
+async function getRegion() {
+  // Get a token (IMDSv2)
+  const token = await new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        method: "PUT",
+        host: "169.254.169.254",
+        path: "/latest/api/token",
+        headers: { "X-aws-ec2-metadata-token-ttl-seconds": "60" },
+        timeout: 1000
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => resolve(data));
+      }
+    );
+    req.on("error", reject);
+    req.end();
+  });
+
+  // Use token to query region
+  return await new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        method: "GET",
+        host: "169.254.169.254",
+        path: "/latest/dynamic/instance-identity/document",
+        headers: { "X-aws-ec2-metadata-token": token },
+        timeout: 1000
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => {
+          try {
+            const doc = JSON.parse(data);
+            resolve(doc.region); // <- region here
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+
+
+// const getRegion = () => {
+//   const metadata = new MetadataService();
+//   metadata.request("/latest/meta-data/placement/region", (err, data) => {
+//     if (err) console.error(err);
+//     else console.log("Region:", data);
+//     return data;
+//   });
+// }
 
 const getChannel = async (redis, id) => JSON.parse(await redis.hget('channels', id) || 'null');
+
+async function terminateByPublicIp({ region, publicIp }) {
+  if (!region || !publicIp) throw new Error("region and publicIp are required");
+
+  const ec2 = new EC2Client({ region });
+
+  // 1. Find instance ID by public IP
+  const di = await ec2.send(new DescribeInstancesCommand({
+    Filters: [
+      { Name: "ip-address", Values: [publicIp] },
+      { Name: "instance-state-name", Values: ["pending","running","stopped","stopping"] }
+    ]
+  }));
+
+  const iid = di.Reservations?.[0]?.Instances?.[0]?.InstanceId;
+  if (!iid) throw new Error(`No EC2 instance found with public IP ${publicIp} in ${region}`);
+
+  console.log(`Resolved ${publicIp} → InstanceId=${iid}`);
+
+  // 2. Terminate the instance
+  const resp = await ec2.send(new TerminateInstancesCommand({
+    InstanceIds: [iid]
+  }));
+
+  return resp.TerminatingInstances || [];
+}
+
+const detachInstance = async (publicIp) => {
+
+  const region = getRegion()
+  // Initialize AWS clients - credentials should be provided via environment variables or IAM role
+  const ec2Client = new EC2Client({ region: region });
+  const autoScalingClient = new AutoScalingClient({ region: region });
+
+  // Step 1: Find the EC2 instance by public IP
+  const describeInstancesCommand = new DescribeInstancesCommand({
+    Filters: [
+      {
+        Name: 'ip-address',
+        Values: [publicIp]
+      },
+      {
+        Name: 'instance-state-name',
+        Values: ['running', 'stopped', 'stopping']
+      }
+    ]
+  });
+
+  const instancesResponse = await ec2Client.send(describeInstancesCommand);
+
+  if (!instancesResponse.Reservations || instancesResponse.Reservations.length === 0) {
+    return res.status(404).json({
+      error: `No EC2 instance found with public IP: ${publicIp}`,
+      success: false
+    });
+  }
+
+  const instance = instancesResponse.Reservations[0].Instances[0];
+  const instanceId = instance.InstanceId;
+
+  // Step 2: Check if the instance is part of an Auto Scaling Group
+  const describeAutoScalingInstancesCommand = new DescribeAutoScalingInstancesCommand({
+    InstanceIds: [instanceId]
+  });
+
+  const asgInstancesResponse = await autoScalingClient.send(describeAutoScalingInstancesCommand);
+
+  if (!asgInstancesResponse.AutoScalingInstances || asgInstancesResponse.AutoScalingInstances.length === 0) {
+    return res.status(400).json({
+      error: `Instance ${instanceId} is not part of any Auto Scaling Group`,
+      instanceId,
+      region,
+      success: false
+    });
+  }
+
+  const autoScalingInstance = asgInstancesResponse.AutoScalingInstances[0];
+  const autoScalingGroupName = autoScalingInstance.AutoScalingGroupName;
+
+  // Step 3: Detach the instance from the Auto Scaling Group
+  const detachInstancesCommand = new DetachInstancesCommand({
+    AutoScalingGroupName: autoScalingGroupName,
+    InstanceIds: [instanceId],
+    ShouldDecrementDesiredCapacity: shouldDecrementDesiredCapacity
+  });
+
+  const detachResponse = await autoScalingClient.send(detachInstancesCommand);
+
+
+  return ({
+    success: true,
+    instanceId,
+    region,
+    autoScalingGroupName,
+    publicIp,
+    shouldDecrementDesiredCapacity,
+    scalingActivities: detachResponse.Activities || []
+  });
+}
+
+function startTermination(wss, time) {
+  console.log(wss.clients);
+
+  var open_clients = Array.from(wss.clients).filter((client) => client.readyState === WebSocket.OPEN);
+  if (open_clients.length) {
+    const now = Date.now()
+    open_clients.forEach((client) => {
+      client.send(now - time > 60000 ? "terminated" : "terminating");
+    })
+    setTimeout(() => { startTermination(wss, time) }, 5000);
+  }
+  else {
+    // aws terminate api call
+    const region = getRegion()
+    terminateByPublicIp(region, global.serverPublicIP)
+  }
+}
 
 function setupWebSocket(wss, redis, publisher, subscriber) {
   const redis_channel_subscriptions = new Set();
@@ -12,16 +192,30 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
       case 'server_channel_sync': {
         const channel_id = data;
         const channel_servers = await redis.smembers(`${channel_id}_servers`);
-        if(channel_servers && channel_servers.length) {
+        if (channel_servers && channel_servers.length) {
           global.servers[channel_id] = channel_servers;
         } else {
           delete global.servers[channel_id];
         }
         return;
       }
+      case 'terminations': {
+        console.log(global.serverPublicIP, data);
+        getRegion().then((region) => console.log("Region:", region));
+        console.log(global.serverPublicIP, data);
+
+
+        // if (global.serverPublicIP == data) {
+        //   //detatch 
+        //   detachInstance(data)
+
+        //   startTermination(wss, Date.now());
+        // }
+        return;
+      }
       case 'patchings': {
         const { type, channels } = JSON.parse(data);
-        if(type == 'PATCH') {
+        if (type == 'PATCH') {
           channels.forEach(async (channel) => {
             global.patches[channel] = Array.from(new Set([
               ...(global.patches[channel] || []),
@@ -31,7 +225,7 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
           const users_connected = [...new Set((await Promise.all(channels.map(async (ch) => (await redis.hvals(`${ch}_members`)).map(JSON.parse)))).flat())];
           wss.clients.forEach((client) => {
             channels.forEach((channel_id) => {
-              if(client.readyState === WebSocket.OPEN && (global.members[channel_id] || []).includes(client.websocketId)) {
+              if (client.readyState === WebSocket.OPEN && (global.members[channel_id] || []).includes(client.websocketId)) {
                 client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
               }
             });
@@ -46,7 +240,7 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
               const users_connected = [...new Set((await Promise.all(global.patches[channel].map(async (ch) => (await redis.hvals(`${ch}_members`)).map(JSON.parse)))).flat())];
               wss.clients.forEach((client) => {
                 global.patches[channel].forEach((channel_id) => {
-                  if(client.readyState === WebSocket.OPEN && (global.members[channel_id] || []).includes(client.websocketId)) {
+                  if (client.readyState === WebSocket.OPEN && (global.members[channel_id] || []).includes(client.websocketId)) {
                     client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
                   }
                 });
@@ -61,12 +255,12 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
       }
       default: {
         const channel_id = event_name;
-        const {message, websocketId} = JSON.parse(data);
-        if(message.connect) {
+        const { message, websocketId } = JSON.parse(data);
+        if (message.connect) {
           const users_connected = [...new Set((await Promise.all((global.patches[channel_id] || [channel_id]).map(async (ch) => (await redis.hvals(`${ch}_members`)).map(JSON.parse)))).flat())];
           wss.clients.forEach((client) => {
-            if(client.readyState === WebSocket.OPEN && (global.members[channel_id] || []).includes(client.websocketId)) {
-              if(client.websocketId != websocketId) {
+            if (client.readyState === WebSocket.OPEN && (global.members[channel_id] || []).includes(client.websocketId)) {
+              if (client.websocketId != websocketId) {
                 client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
               } else {
                 client.send(JSON.stringify({ channel_id, users_connected: users_connected }));
@@ -75,8 +269,8 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
           })
           return;
         }
-        if(message.disconnect) {
-          if((global.members[channel_id] || []).length) {
+        if (message.disconnect) {
+          if ((global.members[channel_id] || []).length) {
             const users_connected = [...new Set((await Promise.all((global.patches[channel_id] || [channel_id]).map(async (ch) => (await redis.hvals(`${ch}_members`)).map(JSON.parse)))).flat())];
             wss.clients.forEach((client) => {
               if (client.readyState === WebSocket.OPEN && (global.members[channel_id] || []).includes(client.websocketId) && client.websocketId != websocketId) {
@@ -111,7 +305,7 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
       socket.close();
       return;
     }
-    const {socket: udpSocket, port: websocketId} = await createSocket();
+    const { socket: udpSocket, port: websocketId } = await createSocket();
     socket.websocketId = websocketId;
     setInterval(() => {
       socket.send([]);
@@ -132,10 +326,10 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
       console.log("WSS:", message);
       try {
         message = JSON.parse(message);
-        if(message.connect) {
+        if (message.connect) {
           const { channel_id } = message.connect;
           delete message.connect.channel_id;
-          if(!await getChannel(redis, channel_id)) {
+          if (!await getChannel(redis, channel_id)) {
             console.log(`User ${websocketId} tried to connect to ${channel_id} but channel is not yet registered`);
             socket.send(JSON.stringify({
               error: true,
@@ -158,25 +352,25 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
             redis_channel_subscriptions.add(channel_id);
           }
           (global.patches[channel_id] || [channel_id]).forEach(async (channel_id) => {
-            await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+            await publisher.publish(channel_id, JSON.stringify({ message, websocketId }));
           })
-        } else if(message.disconnect) {
+        } else if (message.disconnect) {
           const { channel_id } = message.disconnect;
           global.members[channel_id] = (global.members[channel_id] || []).filter((port) => port != websocketId);
           await redis.hdel(`${channel_id}_members`, `${global.serverPublicIP}:${websocketId}`);
           (global.patches[channel_id] || [channel_id]).forEach(async (channel_id) => {
-            if (message?.channel_id) {message.channel_id = channel_id;}
+            if (message?.channel_id) { message.channel_id = channel_id; }
             Object.values(message).forEach(obj => { if (obj?.channel_id) { obj.channel_id = channel_id; } });
-            await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+            await publisher.publish(channel_id, JSON.stringify({ message, websocketId }));
           })
         } else {
           for (const key in message) {
             if (Object.prototype.hasOwnProperty.call(message, key)) {
-              const {channel_id} = message[key];
+              const { channel_id } = message[key];
               (global.patches[channel_id] || [channel_id]).forEach(async (channel_id) => {
-                if (message?.channel_id) {message.channel_id = channel_id;}
+                if (message?.channel_id) { message.channel_id = channel_id; }
                 Object.values(message).forEach(obj => { if (obj?.channel_id) { obj.channel_id = channel_id; } });
-                await publisher.publish(channel_id, JSON.stringify({message, websocketId}));
+                await publisher.publish(channel_id, JSON.stringify({ message, websocketId }));
               })
             }
           }
@@ -189,12 +383,12 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
       console.log('WebSocket User Disconnected', req.url, e);
       const channels = Object.keys(global.members);
       channels.forEach(async (channel_id) => {
-        if(global.members[channel_id].includes(websocketId)) {
+        if (global.members[channel_id].includes(websocketId)) {
           global.members[channel_id] = (global.members[channel_id] || []).filter((port) => port != websocketId);
           const user = JSON.parse(await redis.hget(`${channel_id}_members`, `${global.serverPublicIP}:${websocketId}`));
           await redis.hdel(`${channel_id}_members`, `${global.serverPublicIP}:${websocketId}`);
           (global.patches[channel_id] || [channel_id]).forEach(async (channel_id) => {
-            publisher.publish(channel_id, JSON.stringify({message: {disconnect: {...user, channel_id}}, websocketId}));
+            publisher.publish(channel_id, JSON.stringify({ message: { disconnect: { ...user, channel_id } }, websocketId }));
           })
         }
       });

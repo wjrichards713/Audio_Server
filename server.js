@@ -41,7 +41,7 @@ const { redis, publisher, subscriber, sentinelClient } = redisSetup();
 
 // Routes
 app.use('/channels', createChannelRoutes(redis, publisher));
-app.use('/', createSystemRoutes(redis, sentinelClient));
+app.use('/', createSystemRoutes(redis, publisher, sentinelClient));
 
 // WebSocket server
 const wss = new WebSocket.Server({ port: 3001 }, () => {
