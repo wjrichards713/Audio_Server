@@ -170,7 +170,7 @@ async function startTermination(wss, time) {
   else {
     // aws terminate api call
     const region = "us-east-1";
-    console.log("open_clients.length ", open_clients.length);
+    console.log("open_clients.length ", open_clients.length, global.serverPublicIP);
     terminateByPublicIp(region, global.serverPublicIP)
   }
 }
