@@ -58,7 +58,9 @@ async function getRegion() {
 const getChannel = async (redis, id) => JSON.parse(await redis.hget('channels', id) || 'null');
 
 async function terminateByPublicIp({ region, publicIp }) {
-  if (!region || !publicIp) throw new Error("region and publicIp are required");
+  console.log(region, publicIp);
+  
+  // if (!region || !publicIp) throw new Error("region and publicIp are required");
 
   const ec2 = new EC2Client({ region });
 
@@ -85,7 +87,7 @@ async function terminateByPublicIp({ region, publicIp }) {
 
 const detachInstance = async (publicIp) => {
 
-  const region = "us-east-1";
+  const region = await getRegion();
   // Initialize AWS clients - credentials should be provided via environment variables or IAM role
   const ec2Client = new EC2Client({ region: region });
   const autoScalingClient = new AutoScalingClient({ region: region });
@@ -169,8 +171,8 @@ async function startTermination(wss, time) {
   }
   else {
     // aws terminate api call
-    const region = "us-east-1";
-    console.log("open_clients.length ", open_clients.length, global.serverPublicIP);
+    const region = await getRegion();
+    console.log("open_clients.length ", open_clients.length, global.serverPublicIP, region);
     terminateByPublicIp(region, global.serverPublicIP)
   }
 }
