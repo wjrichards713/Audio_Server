@@ -85,7 +85,7 @@ async function terminateByPublicIp({ region, publicIp }) {
 
 const detachInstance = async (publicIp) => {
 
-  const region = await getRegion();
+  const region = "us-east-1";
   // Initialize AWS clients - credentials should be provided via environment variables or IAM role
   const ec2Client = new EC2Client({ region: region });
   const autoScalingClient = new AutoScalingClient({ region: region });
@@ -170,7 +170,7 @@ async function startTermination(wss, time) {
   }
   else {
     // aws terminate api call
-    const region = await getRegion();
+    const region = "us-east-1";
     console.log("open_clients.length ", open_clients.length);
     terminateByPublicIp(region, global.serverPublicIP)
   }
@@ -192,7 +192,7 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
         return;
       }
       case 'terminations': {
-        console.log(global.serverPublicIP, data);
+        console.log(global.serverPublicIP, data, global.serverPublicIP == data);
 
         if (global.serverPublicIP == data) {
           console.log("processing detatch");
