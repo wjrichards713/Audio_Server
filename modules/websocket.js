@@ -139,7 +139,7 @@ const detachInstance = async (publicIp) => {
   const detachInstancesCommand = new DetachInstancesCommand({
     AutoScalingGroupName: autoScalingGroupName,
     InstanceIds: [instanceId],
-    ShouldDecrementDesiredCapacity: shouldDecrementDesiredCapacity
+    ShouldDecrementDesiredCapacity: true
   });
 
   const detachResponse = await autoScalingClient.send(detachInstancesCommand);
@@ -151,7 +151,6 @@ const detachInstance = async (publicIp) => {
     region,
     autoScalingGroupName,
     publicIp,
-    shouldDecrementDesiredCapacity,
     scalingActivities: detachResponse.Activities || []
   });
 }
