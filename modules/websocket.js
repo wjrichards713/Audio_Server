@@ -202,7 +202,7 @@ async function startTermination(wss, time) {
       client.send(message);
     })
     setTimeout(() => { startTermination(wss, time) }, 5000);
-    console.log("open_clients.length ", open_clients.length);
+    console.log("open_clients.length: ", open_clients.length);
   }
   else {
     // aws terminate api call
