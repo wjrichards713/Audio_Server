@@ -166,7 +166,7 @@ const detachInstance = async (publicIp) => {
   const detachInstancesCommand = new DetachInstancesCommand({
     AutoScalingGroupName: autoScalingGroupName,
     InstanceIds: [instanceId],
-    ShouldDecrementDesiredCapacity: true
+    ShouldDecrementDesiredCapacity: false
   });
 
   const detachResponse = await autoScalingClient.send(detachInstancesCommand);
