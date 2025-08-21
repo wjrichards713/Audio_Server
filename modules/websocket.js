@@ -7,7 +7,7 @@ const http = require("http");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 
-export async function getRegionAndInstanceId() {
+async function getRegionAndInstanceId() {
   // 1. Get IMDSv2 token
   const token = await new Promise((resolve, reject) => {
     const req = http.request(
@@ -64,33 +64,6 @@ export async function getRegionAndInstanceId() {
 
 const getChannel = async (redis, id) => JSON.parse(await redis.hget('channels', id) || 'null');
 
-async function terminateByPublicIp(region, publicIp) {
-  console.log(region, publicIp);
-
-  if (!region || !publicIp) throw new Error("region and publicIp are required");
-
-  const ec2 = new EC2Client({ region });
-
-  // 1. Find instance ID by public IP
-  const di = await ec2.send(new DescribeInstancesCommand({
-    Filters: [
-      { Name: "ip-address", Values: [publicIp] },
-      { Name: "instance-state-name", Values: ["pending", "running", "stopped", "stopping"] }
-    ]
-  }));
-
-  const iid = di.Reservations?.[0]?.Instances?.[0]?.InstanceId;
-  if (!iid) throw new Error(`No EC2 instance found with public IP ${publicIp} in ${region}`);
-
-  console.log(`Resolved ${publicIp} → InstanceId=${iid}`);
-
-  // 2. Terminate the instance
-  const resp = await ec2.send(new TerminateInstancesCommand({
-    InstanceIds: [iid]
-  }));
-
-  return resp.TerminatingInstances || [];
-}
 
 let _shutdownStarted = false;
 
