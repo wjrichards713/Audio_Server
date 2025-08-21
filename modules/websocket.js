@@ -4,6 +4,8 @@ const { createSocket } = require('./udp');
 const { EC2Client, DescribeInstancesCommand, TerminateInstancesCommand } = require('@aws-sdk/client-ec2');
 const { AutoScalingClient, DetachInstancesCommand, DescribeAutoScalingInstancesCommand } = require('@aws-sdk/client-auto-scaling');
 const http = require("http");
+const { execFile } = require("node:child_process");
+const fs = require("node:fs");
 
 async function getRegion() {
   // Get a token (IMDSv2)
