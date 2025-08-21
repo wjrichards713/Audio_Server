@@ -1232,8 +1232,8 @@
 
                 const result = await response.json();
 
-                if (result.success) {
-                    alert(`✅ Success!\n\nInstance ${result.instanceId} has been detached from Auto Scaling Group "${result.autoScalingGroupName}".\n\nRegion: ${result.region}\nPublic IP: ${result.publicIp}`);
+                if (result.terminating) {
+                    alert(`✅ Success! server will be terminated once all client will shift to other`);
                     
                     // Refresh the dashboard to reflect changes
                     fetchData(true);
