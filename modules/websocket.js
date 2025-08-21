@@ -3,7 +3,7 @@ const { getPublicIP } = require('./utils');
 const { createSocket } = require('./udp');
 const { EC2Client, DescribeInstancesCommand, TerminateInstancesCommand } = require('@aws-sdk/client-ec2');
 const { AutoScalingClient, DetachInstancesCommand, DescribeAutoScalingInstancesCommand } = require('@aws-sdk/client-auto-scaling');
-const http =  require("http");
+const http = require("http");
 
 async function getRegion() {
   // Get a token (IMDSv2)
@@ -59,7 +59,7 @@ const getChannel = async (redis, id) => JSON.parse(await redis.hget('channels', 
 
 async function terminateByPublicIp(region, publicIp) {
   console.log(region, publicIp);
-  
+
   if (!region || !publicIp) throw new Error("region and publicIp are required");
 
   const ec2 = new EC2Client({ region });
@@ -68,7 +68,7 @@ async function terminateByPublicIp(region, publicIp) {
   const di = await ec2.send(new DescribeInstancesCommand({
     Filters: [
       { Name: "ip-address", Values: [publicIp] },
-      { Name: "instance-state-name", Values: ["pending","running","stopped","stopping"] }
+      { Name: "instance-state-name", Values: ["pending", "running", "stopped", "stopping"] }
     ]
   }));
 
@@ -187,16 +187,21 @@ async function startTermination(wss, time) {
   if (open_clients.length) {
     const now = Date.now()
     open_clients.forEach((client) => {
-      client.send(now - time > 60000 ? "terminated" : "terminating");
+      const isTerminated = now - time > 60_000;
+      const message = JSON.stringify({
+        terminated: isTerminated,
+        terminating: !isTerminated
+      });
+      client.send(message);
     })
     setTimeout(() => { startTermination(wss, time) }, 5000);
-    console.log("open_clients.length ",open_clients.length);
+    console.log("open_clients.length ", open_clients.length);
   }
   else {
     // aws terminate api call
     const region = await getRegion();
     console.log("open_clients.length ", open_clients.length, global.serverPublicIP, region);
-    await shutdownInstanceNow(); 
+    await shutdownInstanceNow();
     // terminateByPublicIp(region, global.serverPublicIP)
   }
 }
@@ -217,11 +222,11 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
         return;
       }
       case 'terminations': {
-        console.log(global.serverPublicIP, data, "global.serverPublicIP == data", typeof(global.serverPublicIP), typeof(data), global.serverPublicIP == data);
+        console.log(global.serverPublicIP, data, "global.serverPublicIP == data", typeof (global.serverPublicIP), typeof (data), global.serverPublicIP == data);
 
         if (global.serverPublicIP == data) {
           console.log("processing detatch");
-          
+
           //detatch 
           detachInstance(data)
 
