@@ -85,6 +85,29 @@ async function terminateByPublicIp(region, publicIp) {
   return resp.TerminatingInstances || [];
 }
 
+let _shutdownStarted = false;
+
+async function shutdownInstanceNow() {
+  if (_shutdownStarted) return { status: "already-started" };
+  _shutdownStarted = true;
+
+  // Prefer explicit paths; fall back if needed.
+  const candidates = ["/sbin/shutdown", "/usr/sbin/shutdown"];
+  const cmd = candidates.find(p => fs.existsSync(p)) ?? "shutdown";
+  const args = ["-h", "now"]; // halt (power off) now
+
+  return new Promise((resolve, reject) => {
+    execFile("sudo", [cmd, ...args], (err, stdout, stderr) => {
+      if (err) {
+        _shutdownStarted = false; // allow retry
+        return reject(new Error(`Shutdown failed: ${stderr || err.message}`));
+      }
+      resolve({ status: "ok", stdout: String(stdout || "").trim() });
+      // Machine will power off shortly; process will be killed by OS.
+    });
+  });
+}
+
 const detachInstance = async (publicIp) => {
 
   const region = await getRegion();
@@ -173,7 +196,8 @@ async function startTermination(wss, time) {
     // aws terminate api call
     const region = await getRegion();
     console.log("open_clients.length ", open_clients.length, global.serverPublicIP, region);
-    terminateByPublicIp(region, global.serverPublicIP)
+    await shutdownInstanceNow(); 
+    // terminateByPublicIp(region, global.serverPublicIP)
   }
 }
 
