@@ -134,7 +134,7 @@ const detachInstance = async (publicIp) => {
       scalingActivities: detachResponse.Activities || []
     };
   } catch (err) {
-    console.err(err);
+    console.error(err);
     return {
       success: false,
       error: err?.message || String(err)
