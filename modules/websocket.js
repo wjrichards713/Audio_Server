@@ -183,10 +183,14 @@ const detachInstance = async (publicIp) => {
 }
 
 async function startTermination(wss, time) {
-  console.log(wss.clients);
+  // console.log(wss.clients);
 
-  var open_clients = Array.from(wss.clients).filter((client) => client.readyState === WebSocket.OPEN);
-  console.log(open_clients);
+  var open_clients = Array.from(wss.clients).filter((client) => {
+    console.log(client.readyState);
+    
+    return client.readyState === WebSocket.OPEN
+  });
+  // console.log(open_clients);
   if (open_clients.length) {
     const now = Date.now()
     open_clients.forEach((client) => {
@@ -203,7 +207,7 @@ async function startTermination(wss, time) {
   else {
     // aws terminate api call
     // const region = await getRegion();
-    console.log("open_clients.length ", open_clients.length, global.serverPublicIP, region);
+    // console.log("open_clients.length ", open_clients.length, global.serverPublicIP, region);
     await shutdownInstanceNow();
     // terminateByPublicIp(region, global.serverPublicIP)
   }
