@@ -91,6 +91,8 @@ async function shutdownInstanceNow() {
 const detachInstance = async (publicIp) => {
   try {
     // Get both region and instanceId from IMDSv2 in one call
+    console.log("detatch start");
+    
     const { region, instanceId } = await getRegionAndInstanceId();
 
     const autoScalingClient = new AutoScalingClient({ region });
@@ -120,6 +122,8 @@ const detachInstance = async (publicIp) => {
         ShouldDecrementDesiredCapacity: false
       })
     );
+
+    console.log("detatch done");
 
     return {
       success: true,
@@ -161,7 +165,7 @@ async function startTermination(wss, time) {
   }
   else {
     // aws terminate api call
-    await shutdownInstanceNow();
+    // await shutdownInstanceNow();
     // terminateByPublicIp(region, global.serverPublicIP)
   }
 }
