@@ -7,8 +7,8 @@ const http = require("http");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 
-async function getRegion() {
-  // Get a token (IMDSv2)
+export async function getRegionAndInstanceId() {
+  // 1. Get IMDSv2 token
   const token = await new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -16,7 +16,7 @@ async function getRegion() {
         host: "169.254.169.254",
         path: "/latest/api/token",
         headers: { "X-aws-ec2-metadata-token-ttl-seconds": "60" },
-        timeout: 1000
+        timeout: 1000,
       },
       (res) => {
         let data = "";
@@ -28,7 +28,7 @@ async function getRegion() {
     req.end();
   });
 
-  // Use token to query region
+  // 2. Fetch the instance identity doc (region + instanceId, etc.)
   return await new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -36,7 +36,7 @@ async function getRegion() {
         host: "169.254.169.254",
         path: "/latest/dynamic/instance-identity/document",
         headers: { "X-aws-ec2-metadata-token": token },
-        timeout: 1000
+        timeout: 1000,
       },
       (res) => {
         let data = "";
@@ -44,7 +44,12 @@ async function getRegion() {
         res.on("end", () => {
           try {
             const doc = JSON.parse(data);
-            resolve(doc.region); // <- region here
+            resolve({
+              region: doc.region,
+              instanceId: doc.instanceId,
+              accountId: doc.accountId,   // extra info if you need it
+              availabilityZone: doc.availabilityZone
+            });
           } catch (e) {
             reject(e);
           }
@@ -111,76 +116,53 @@ async function shutdownInstanceNow() {
 }
 
 const detachInstance = async (publicIp) => {
+  try {
+    // Get both region and instanceId from IMDSv2 in one call
+    const { region, instanceId } = await getRegionAndInstanceId();
 
-  const region = await getRegion();
-  // Initialize AWS clients - credentials should be provided via environment variables or IAM role
-  const ec2Client = new EC2Client({ region: region });
-  const autoScalingClient = new AutoScalingClient({ region: region });
+    const autoScalingClient = new AutoScalingClient({ region });
 
-  // Step 1: Find the EC2 instance by public IP
-  const describeInstancesCommand = new DescribeInstancesCommand({
-    Filters: [
-      {
-        Name: 'ip-address',
-        Values: [publicIp]
-      },
-      {
-        Name: 'instance-state-name',
-        Values: ['running', 'stopped', 'stopping']
-      }
-    ]
-  });
+    // Check if *this* instance is part of an ASG
+    const { AutoScalingInstances = [] } = await autoScalingClient.send(
+      new DescribeAutoScalingInstancesCommand({ InstanceIds: [instanceId] })
+    );
 
-  const instancesResponse = await ec2Client.send(describeInstancesCommand);
+    if (!AutoScalingInstances.length) {
+      return {
+        success: false,
+        error: `Instance ${instanceId} is not part of any Auto Scaling Group`,
+        instanceId,
+        region,
+        publicIp
+      };
+    }
 
-  if (!instancesResponse.Reservations || instancesResponse.Reservations.length === 0) {
-    return res.status(404).json({
-      error: `No EC2 instance found with public IP: ${publicIp}`,
-      success: false
-    });
-  }
+    const autoScalingGroupName = AutoScalingInstances[0].AutoScalingGroupName;
 
-  const instance = instancesResponse.Reservations[0].Instances[0];
-  const instanceId = instance.InstanceId;
+    // Detach self from the ASG without reducing desired capacity
+    const detachResponse = await autoScalingClient.send(
+      new DetachInstancesCommand({
+        AutoScalingGroupName: autoScalingGroupName,
+        InstanceIds: [instanceId],
+        ShouldDecrementDesiredCapacity: false
+      })
+    );
 
-  // Step 2: Check if the instance is part of an Auto Scaling Group
-  const describeAutoScalingInstancesCommand = new DescribeAutoScalingInstancesCommand({
-    InstanceIds: [instanceId]
-  });
-
-  const asgInstancesResponse = await autoScalingClient.send(describeAutoScalingInstancesCommand);
-
-  if (!asgInstancesResponse.AutoScalingInstances || asgInstancesResponse.AutoScalingInstances.length === 0) {
-    return res.status(400).json({
-      error: `Instance ${instanceId} is not part of any Auto Scaling Group`,
+    return {
+      success: true,
       instanceId,
       region,
-      success: false
-    });
+      autoScalingGroupName,
+      publicIp,
+      scalingActivities: detachResponse.Activities || []
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err?.message || String(err)
+    };
   }
-
-  const autoScalingInstance = asgInstancesResponse.AutoScalingInstances[0];
-  const autoScalingGroupName = autoScalingInstance.AutoScalingGroupName;
-
-  // Step 3: Detach the instance from the Auto Scaling Group
-  const detachInstancesCommand = new DetachInstancesCommand({
-    AutoScalingGroupName: autoScalingGroupName,
-    InstanceIds: [instanceId],
-    ShouldDecrementDesiredCapacity: false
-  });
-
-  const detachResponse = await autoScalingClient.send(detachInstancesCommand);
-
-
-  return ({
-    success: true,
-    instanceId,
-    region,
-    autoScalingGroupName,
-    publicIp,
-    scalingActivities: detachResponse.Activities || []
-  });
-}
+};
 
 async function startTermination(wss, time) {
   // console.log(wss.clients);
@@ -206,8 +188,6 @@ async function startTermination(wss, time) {
   }
   else {
     // aws terminate api call
-    // const region = await getRegion();
-    // console.log("open_clients.length ", open_clients.length, global.serverPublicIP, region);
     await shutdownInstanceNow();
     // terminateByPublicIp(region, global.serverPublicIP)
   }
