@@ -166,7 +166,7 @@ async function startTermination(wss, time) {
   }
   else {
     // aws terminate api call
-    // await shutdownInstanceNow();
+    await shutdownInstanceNow();
     // terminateByPublicIp(region, global.serverPublicIP)
   }
 }
