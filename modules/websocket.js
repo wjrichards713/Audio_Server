@@ -186,10 +186,11 @@ async function startTermination(wss, time) {
   console.log(wss.clients);
 
   var open_clients = Array.from(wss.clients).filter((client) => client.readyState === WebSocket.OPEN);
+  console.log(open_clients);
   if (open_clients.length) {
     const now = Date.now()
     open_clients.forEach((client) => {
-      const isTerminated = now - time > 60_000;
+      const isTerminated = now - time > 60000;
       const message = JSON.stringify({
         terminated: isTerminated,
         terminating: !isTerminated
@@ -201,7 +202,7 @@ async function startTermination(wss, time) {
   }
   else {
     // aws terminate api call
-    const region = await getRegion();
+    // const region = await getRegion();
     console.log("open_clients.length ", open_clients.length, global.serverPublicIP, region);
     await shutdownInstanceNow();
     // terminateByPublicIp(region, global.serverPublicIP)
@@ -230,7 +231,7 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
           console.log("processing detatch");
 
           //detatch 
-          detachInstance(data)
+          await detachInstance(data)
 
           startTermination(wss, Date.now());
         }
