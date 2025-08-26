@@ -242,7 +242,7 @@ async function updateAndReattachWithRollback({ redis }) {
   }
 }
 
-async function startUpdate(wss, startedAt, redis, getRegionAndInstanceId, opts = {}) {
+async function startUpdate(wss, startedAt, redis, opts = {}) {
   const maxDrainMs = opts.maxDrainMs ?? UPDATE_MAX_DRAIN_MS;
   const tickMs     = opts.tickMs ?? UPDATE_TICK_MS;
 
@@ -422,7 +422,7 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
         if (global.serverPublicIP == data) {
           console.log("processing update");
           try {
-            await startUpdate(wss, Date.now(), redis, getRegionAndInstanceId, {
+            await startUpdate(wss, Date.now(), redis, {
               maxDrainMs: UPDATE_MAX_DRAIN_MS,
               tickMs: UPDATE_TICK_MS
             });
