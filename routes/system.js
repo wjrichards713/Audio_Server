@@ -407,6 +407,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
 
   // Update one server's current version to the latest from `version_details`
   router.post("/update-server/:ip", async (req, res) => {
+    console.log(`Request to update server ${req.params.ip}`);
     try {
         console.log(`Request to update server ${req.params.ip}`);
         publisher.publish("update", req.params.ip);
