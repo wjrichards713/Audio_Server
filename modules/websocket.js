@@ -417,6 +417,8 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
         return;
       }
       case 'update': {
+        console.log("got update event");
+        
         console.log(global.serverPublicIP, data, "update", typeof(global.serverPublicIP), typeof(data), global.serverPublicIP == data);
 
         if (global.serverPublicIP == data) {
