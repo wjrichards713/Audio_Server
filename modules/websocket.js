@@ -1,11 +1,28 @@
 const WebSocket = require('ws');
 const { getPublicIP } = require('./utils');
 const { createSocket } = require('./udp');
-const { EC2Client, DescribeInstancesCommand, TerminateInstancesCommand } = require('@aws-sdk/client-ec2');
-const { AutoScalingClient, DetachInstancesCommand, DescribeAutoScalingInstancesCommand } = require('@aws-sdk/client-auto-scaling');
+const {
+  AutoScalingClient,
+  DescribeAutoScalingInstancesCommand,
+  DescribeAutoScalingGroupsCommand,
+  UpdateAutoScalingGroupCommand,
+  EnterStandbyCommand,
+  ExitStandbyCommand,
+} = require("@aws-sdk/client-auto-scaling");
+
 const http = require("http");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
+
+// Redis keys (must match system.js)
+const SERVER_STATUS_KEY   = "server_status";
+const SERVER_VERSIONS_KEY = "server_versions";
+const LATEST_VERSION_KEY  = "version_details";
+
+// Drain behavior (tune if you want)
+const UPDATE_MAX_DRAIN_MS = parseInt(process.env.UPDATE_MAX_DRAIN_MS || "60000", 10); // 60s
+const UPDATE_TICK_MS      = parseInt(process.env.UPDATE_TICK_MS || "5000", 10);       // 5s
+
 
 async function getRegionAndInstanceId() {
   // 1. Get IMDSv2 token
@@ -59,6 +76,206 @@ async function getRegionAndInstanceId() {
     req.on("error", reject);
     req.end();
   });
+}
+
+async function enterStandbyNoReplacement({ region, instanceId }) {
+  const asg = new AutoScalingClient({ region });
+
+  const { AutoScalingInstances = [] } = await asg.send(
+    new DescribeAutoScalingInstancesCommand({ InstanceIds: [instanceId] })
+  );
+  if (!AutoScalingInstances.length) {
+    throw new Error(`Instance ${instanceId} is not in any Auto Scaling Group`);
+  }
+  const AutoScalingGroupName = AutoScalingInstances[0].AutoScalingGroupName;
+
+  await asg.send(new EnterStandbyCommand({
+    AutoScalingGroupName,
+    InstanceIds: [instanceId],
+    ShouldDecrementDesiredCapacity: true, // 👈 no replacement while updating
+  }));
+
+  return { AutoScalingGroupName };
+}
+
+async function exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroupName }) {
+  const asg = new AutoScalingClient({ region });
+
+  const { AutoScalingGroups = [] } = await asg.send(
+    new DescribeAutoScalingGroupsCommand({ AutoScalingGroupNames: [autoScalingGroupName] })
+  );
+  const group = AutoScalingGroups[0];
+  if (!group) throw new Error(`ASG ${autoScalingGroupName} not found`);
+
+  const desired = group.DesiredCapacity ?? 0;
+  const maxSize = group.MaxSize ?? desired;
+
+  if (desired+1 > maxSize) {
+    await asg.send(new UpdateAutoScalingGroupCommand({
+      AutoScalingGroupName: autoScalingGroupName,
+      MaxSize: desired + 1
+    }));
+  }
+
+  await asg.send(new ExitStandbyCommand({
+    AutoScalingGroupName: autoScalingGroupName,
+    InstanceIds: [instanceId]
+  }));
+
+  return { desiredBefore: currentDesired, desiredAfter: desired + 1 };
+}
+
+
+async function getLatestFromRedis(redis) {
+  const raw = await redis.get(LATEST_VERSION_KEY);
+  if (!raw) throw new Error(`No ${LATEST_VERSION_KEY} set`);
+  let latest;
+  try { latest = JSON.parse(raw); } catch { throw new Error(`Invalid JSON in ${LATEST_VERSION_KEY}`); }
+  if (!latest.version || !latest.zipFile) throw new Error(`'version_details' missing version/zipFile`);
+  return latest; 
+}
+
+async function getPreviousServerVersion(redis, ip) {
+  const raw = await redis.hget(SERVER_VERSIONS_KEY, ip);
+  if (raw) {
+    try {
+      const j = JSON.parse(raw);
+      if (j.version && j.zipFile) return { version: j.version, zipFile: j.zipFile };
+    } catch {}
+  }
+  const rawStatus = await redis.hget(SERVER_STATUS_KEY, ip);
+  if (rawStatus) {
+    try {
+      const s = JSON.parse(rawStatus);
+      if (s.version && s.zipFile) return { version: s.version, zipFile: s.zipFile };
+    } catch {}
+  }
+  return null;
+}
+
+async function writeServerVersionToRedis(redis, ip, { version, zipFile, sourceUpdatedAt }) {
+  const now = Date.now();
+
+  const payload = { ip, version, zipFile, sourceUpdatedAt: sourceUpdatedAt || null, updatedAt: now };
+  await redis.hset(SERVER_VERSIONS_KEY, ip, JSON.stringify(payload));
+
+  const rawStatus = await redis.hget(SERVER_STATUS_KEY, ip);
+  if (rawStatus) {
+    let obj;
+    try { obj = JSON.parse(rawStatus); } catch { obj = { ip }; }
+    obj.version = version;
+    obj.zipFile = zipFile;
+    obj.versionUpdatedAt = now;
+    await redis.hset(SERVER_STATUS_KEY, ip, JSON.stringify(obj));
+  }
+
+  return payload;
+}
+
+// --- placeholders for your real update/rollback scripts ---
+async function performLocalUpdate({ version, zipFile }) {
+  console.log("Updated Performed: ", "version", version, "zipFile", zipFile);
+  // Replace with your real steps (download, unpack, restart, health-check)
+  // await exec(`/usr/local/bin/update-app.sh ${version} ${zipFile}`);
+  // Optionally: await exec(`/usr/local/bin/health-check.sh`);
+}
+
+async function performRollbackToPrevious({ version, zipFile }) {
+  console.log("Rollback ro previous: ", "version", version, "zipFile", zipFile);
+  // await exec(`/usr/local/bin/rollback-app.sh ${version} ${zipFile}`);
+  // Optionally: await exec(`/usr/local/bin/health-check.sh`);
+}
+
+async function updateAndReattachWithRollback({ redis }) {
+  const { region, instanceId } = await getRegionAndInstanceId();
+  const ip = global.serverPublicIP;
+
+  // 1) Stop new LB traffic; no replacement (desired -1)
+  const { AutoScalingGroupName } = await enterStandbyNoReplacement({ region, instanceId });
+
+  const latest   = await getLatestFromRedis(redis);
+  const previous = await getPreviousServerVersion(redis, ip);
+
+  try {
+    // 2) Try update
+    await performLocalUpdate({ version: latest.version, zipFile: latest.zipFile });
+
+    // 3) Rejoin: restore desired (+1) & exit standby
+    await exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroupName: AutoScalingGroupName });
+
+    // 4) Bookkeeping (this server now runs latest)
+    await writeServerVersionToRedis(redis, ip, {
+      version: latest.version,
+      zipFile: latest.zipFile,
+      sourceUpdatedAt: latest.updatedAt
+    });
+
+    return { success: true, rolledBack: false, latest, previous };
+  } catch (err) {
+    console.error("Update failed, attempting rollback:", err);
+
+    if (!previous) {
+      // No previous to roll back to → keep in Standby for safety (manual intervention)
+      return { success: false, rolledBack: false, error: "No previous version to roll back to", latest, previous: null };
+    }
+
+    try {
+      // Roll back
+      await performRollbackToPrevious({ version: previous.version, zipFile: previous.zipFile });
+
+      // Rejoin capacity & exit standby
+      await exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroupName: AutoScalingGroupName });
+
+      // Ensure Redis shows the old version as current
+      await writeServerVersionToRedis(redis, ip, {
+        version: previous.version,
+        zipFile: previous.zipFile,
+        sourceUpdatedAt: null
+      });
+
+      return { success: false, rolledBack: true, latest, previous };
+    } catch (rbErr) {
+      console.error("Rollback failed:", rbErr);
+      // Keep in Standby so it doesn't serve bad traffic
+      return { success: false, rolledBack: false, error: `Rollback failed: ${rbErr.message}`, latest, previous };
+    }
+  }
+}
+
+async function startUpdate(wss, startedAt, redis, getRegionAndInstanceId, opts = {}) {
+  const maxDrainMs = opts.maxDrainMs ?? UPDATE_MAX_DRAIN_MS;
+  const tickMs     = opts.tickMs ?? UPDATE_TICK_MS;
+
+  // Drain existing clients up to maxDrainMs
+  const deadline = Date.now() + maxDrainMs;
+  while (true) {
+    const openClients = Array.from(wss.clients).filter(c => c.readyState === WebSocket.OPEN);
+    const now = Date.now();
+
+    openClients.forEach(c => c.send(JSON.stringify({ updating: true, updated: false, elapsedMs: now - startedAt })));
+
+    if (openClients.length === 0 || now >= deadline) break;
+    await new Promise(r => setTimeout(r, tickMs));
+  }
+
+  // Perform update with rollback handling (this will also restore desired & exit standby)
+  const result = await updateAndReattachWithRollback({
+    redis
+  });
+
+  // Notify any clients that connected meanwhile
+  Array.from(wss.clients).filter(c => c.readyState === WebSocket.OPEN).forEach(c => {
+    c.send(JSON.stringify({
+      updating: false,
+      updated: result.success,
+      rolledBack: !!result.rolledBack,
+      error: result.success ? undefined : (result.error || "Update failed; rollback attempted")
+    }));
+  });
+
+  if (!result.success && !result.rolledBack) {
+    console.error("Instance left in Standby due to failed update & rollback. Manual intervention required.");
+  }
 }
 
 
@@ -187,7 +404,7 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
         return;
       }
       case 'terminations': {
-        console.log(global.serverPublicIP, data, "global.serverPublicIP == data", typeof (global.serverPublicIP), typeof (data), global.serverPublicIP == data);
+        console.log(global.serverPublicIP, data, "terminations", typeof(global.serverPublicIP), typeof(data), global.serverPublicIP == data);
 
         if (global.serverPublicIP == data) {
           console.log("processing detatch");
@@ -196,6 +413,22 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
           await detachInstance(data)
 
           startTermination(wss, Date.now());
+        }
+        return;
+      }
+      case 'update': {
+        console.log(global.serverPublicIP, data, "update", typeof(global.serverPublicIP), typeof(data), global.serverPublicIP == data);
+
+        if (global.serverPublicIP == data) {
+          console.log("processing update");
+          try {
+            await startUpdate(wss, Date.now(), redis, getRegionAndInstanceId, {
+              maxDrainMs: UPDATE_MAX_DRAIN_MS,
+              tickMs: UPDATE_TICK_MS
+            });
+          } catch (e) {
+            console.error("startUpdate error:", e);
+          }
         }
         return;
       }

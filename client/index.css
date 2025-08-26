@@ -673,6 +673,130 @@ body {
     gap: 20px;
 }
 
+.version-info {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    gap: 4px;
+}
+
+.version-info.current {
+    background-color: #c6f6d5;
+    color: #2d5016;
+    border: 1px solid #9ae6b4;
+}
+
+.version-info.outdated {
+    background-color: #fed7d7;
+    color: #c53030;
+    border: 1px solid #fc8181;
+}
+
+.version-section {
+    margin: 16px 0;
+    padding: 12px;
+    border-radius: 8px;
+    border-left: 4px solid;
+}
+
+.version-section.current {
+    background-color: #f0fff4;
+    border-left-color: #48bb78;
+}
+
+.version-section.outdated {
+    background-color: #fffaf0;
+    border-left-color: #ed8936;
+}
+
+.version-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.version-title {
+    font-weight: 600;
+    color: #2d3748;
+}
+
+.version-status {
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.version-status.current {
+    background-color: #c6f6d5;
+    color: #2d5016;
+}
+
+.version-status.outdated {
+    background-color: #fed7d7;
+    color: #c53030;
+}
+
+.version-details {
+    display: grid;
+    gap: 4px;
+    font-size: 0.9rem;
+    color: #4a5568;
+}
+
+.update-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-left: 8px;
+}
+
+.update-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.update-btn-large {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 8px;
+    width: 100%;
+}
+
+.update-btn-large:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.server-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.server-ip {
+    flex: 1;
+    min-width: 0;
+}
+
 @media (max-width: 768px) {
     .streaming-servers-grid {
         grid-template-columns: 1fr;

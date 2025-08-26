@@ -349,11 +349,30 @@
                         avgCpuUsage = (totalUsage / status.cpu.length).toFixed(1) + '%';
                     }
 
+                    // Version information
+                    let versionInfo = '';
+                    if (status.currentVersion || status.isOutdated !== null) {
+                        const versionClass = status.isOutdated ? 'outdated' : 'current';
+                        const versionText = status.currentVersion || 'Unknown';
+                        const latestText = data.latestVersion?.version || 'Unknown';
+                        
+                        versionInfo = `
+                            <div class="version-info ${versionClass}" title="Current: ${versionText} | Latest: ${latestText}">
+                                📦 v${versionText}
+                                ${status.isOutdated ? '⚠️' : '✅'}
+                            </div>
+                        `;
+                    }
+
                     listHtml += `
                         <div class="server-item ${statusClass}">
                             <div class="server-header">
                                 <div class="server-ip">${status.ip}</div>
                                 <div class="server-status-badge ${statusClass}">${statusText}</div>
+                                ${versionInfo}
+                                ${status.isOutdated ? `<button class="update-btn" onclick="updateServer('${status.ip}')" title="Update to latest version">
+                                    🔄 Update
+                                </button>` : ''}
                                 <button class="detach-btn" onclick="detachInstance('${status.ip}')" title="Detach from Auto Scaling Group">
                                     🔗💥
                                 </button>
@@ -642,6 +661,33 @@
                         statusText = 'Active';
                     }
 
+                    // Version information for detailed view
+                    let versionSection = '';
+                    if (server.currentVersion || server.isOutdated !== null) {
+                        const versionClass = server.isOutdated ? 'outdated' : 'current';
+                        const currentVer = server.currentVersion || 'Unknown';
+                        const latestVer = data.latestVersion?.version || 'Unknown';
+                        
+                        versionSection = `
+                            <div class="version-section ${versionClass}">
+                                <div class="version-header">
+                                    <span class="version-title">📦 Version Information</span>
+                                    <span class="version-status ${versionClass}">${server.isOutdated ? '⚠️ Outdated' : '✅ Current'}</span>
+                                </div>
+                                <div class="version-details">
+                                    <div><strong>Current:</strong> v${currentVer}</div>
+                                    <div><strong>Latest:</strong> v${latestVer}</div>
+                                    ${server.versionDetails?.initializedAt ? `<div><strong>Last Updated:</strong> ${formatTimestamp(server.versionDetails.initializedAt)}</div>` : ''}
+                                </div>
+                                ${server.isOutdated ? `
+                                    <button class="update-btn-large" onclick="updateServer('${server.ip}')" title="Update to latest version">
+                                        🔄 Update to v${latestVer}
+                                    </button>
+                                ` : ''}
+                            </div>
+                        `;
+                    }
+
                     cardsHtml += `
                         <div class="detailed-server-card ${statusClass}">
                             <div class="server-card-header">
@@ -651,6 +697,7 @@
                                     🔗💥
                                 </button>
                             </div>
+                            ${versionSection}
                     `;
 
                     // System metrics
@@ -1211,6 +1258,48 @@
 
         // Store last data for filtering
         window.lastData = {};
+
+        // Server update function
+       async function updateServer(serverIp, btnEl) {
+        if (!confirm(`Are you sure you want to update server ${serverIp} to the latest version?`)) {
+            return;
+        }
+
+        btnEl?.setAttribute('disabled', 'disabled');
+
+        try {
+            const res = await fetch(`/update-server/${encodeURIComponent(serverIp)}`, {
+            method: 'POST',
+            // headers not needed since there's no body
+            // headers: { 'Content-Type': 'application/json' },
+            // credentials: 'same-origin', // use if you rely on cookies/CSRF
+            });
+
+            // Try to parse JSON (even on error status)
+            let payload;
+            const text = await res.text();
+            try {
+            payload = text ? JSON.parse(text) : {};
+            } catch {
+            throw new Error(`Unexpected response: ${text?.slice(0, 200) || '(empty)'}`);
+            }
+
+            if (!res.ok || payload.success === false) {
+            const msg = payload.error || res.statusText || 'Unknown error';
+            throw new Error(msg);
+            }
+
+            // Success
+            const latest = payload.latest?.version || '(unknown)';
+            alert(`✅ Server ${serverIp} updated to ${latest}`);
+            fetchData(true); // refresh your table
+        } catch (error) {
+            console.error('Error updating server:', error);
+            alert(`❌ Failed to update server ${serverIp}: ${error.message}`);
+        } finally {
+            btnEl?.removeAttribute('disabled');
+        }
+        }
 
         // EC2 Instance detachment function
         async function detachInstance(publicIp) {
