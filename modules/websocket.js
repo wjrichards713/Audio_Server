@@ -172,13 +172,35 @@ async function writeServerVersionToRedis(redis, ip, { version, zipFile, sourceUp
   return payload;
 }
 
+// helper (top of file, once)
+const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+
 // --- placeholders for your real update/rollback scripts ---
-async function performLocalUpdate({ version, zipFile }) {
-  console.log("Updated Performed: ", "version", version, "zipFile", zipFile);
-  // Replace with your real steps (download, unpack, restart, health-check)
+// replace your current performLocalUpdate with this:
+async function performLocalUpdate({ version, zipFile, waitMs }) {
+  const ms = Number.isFinite(waitMs)
+    ? waitMs
+    : parseInt(process.env.DUMMY_UPDATE_WAIT_MS || "60000", 10); // default 60s
+
+  console.log(`Update (noop) for version=${version} zipFile=${zipFile} — waiting ${ms}ms...`);
+
+  // optional: log a heartbeat every 5s while waiting
+  const step = 5000;
+  let remaining = ms;
+  while (remaining > 0) {
+    await sleep(Math.min(step, remaining));
+    remaining -= step;
+    const left = Math.max(0, Math.ceil(remaining / 1000));
+    if (left % 5 === 0 || remaining <= 0) {
+      console.log(`...update wait: ~${left}s remaining`);
+    }
+  }
+
+  // if you later add real commands, do them here:
   // await exec(`/usr/local/bin/update-app.sh ${version} ${zipFile}`);
-  // Optionally: await exec(`/usr/local/bin/health-check.sh`);
+  // await exec(`/usr/local/bin/health-check.sh`);
 }
+
 
 async function performRollbackToPrevious({ version, zipFile }) {
   console.log("Rollback ro previous: ", "version", version, "zipFile", zipFile);
