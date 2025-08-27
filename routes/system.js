@@ -11,7 +11,20 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   const SERVER_VERSIONS_KEY = "server_versions";
   const LATEST_VERSION_KEY = "version_details";
 
+  // Add this constant near your other keys
+  const REST_SERVER_STATUS_KEY = "REST_Server_Status";
 
+  // helper: keep only the fields we care about
+  function sanitizeRestStatus(obj) {
+    if (!obj || typeof obj !== "object") return obj;
+    return {
+      ip: obj.ip || null,
+      cpu: Array.isArray(obj.cpu) ? obj.cpu : [],
+      memory: obj.memory || {},
+      uptime: obj.uptime ?? null,
+      updatedAt: obj.updatedAt ?? null,
+    };
+  }
 
   // Store process start time
   const processStartTime = Date.now();
@@ -77,140 +90,166 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
 
   // Audio server connected users endpoint (original format)
   router.get("/audio-server-connected-users", async (req, res) => {
-  try {
-    // Fetch everything we need in parallel
-    const [rawStatuses, streamingStatuses, rawVersions, rawLatest] = await Promise.all([
-      redis.hgetall(SERVER_STATUS_KEY),
-      redis.hgetall(STREAMING_STATS_KEY),
-      redis.hgetall(SERVER_VERSIONS_KEY),
-      redis.get(LATEST_VERSION_KEY)
-    ]);
-
-    // Parse streaming statuses
-    const parsedStreamingStatuses = {};
-    for (const [key, jsonData] of Object.entries(streamingStatuses || {})) {
-      try {
-        parsedStreamingStatuses[key] = JSON.parse(jsonData);
-      } catch (err) {
-        console.error(`Error parsing streaming status for key ${key}:`, err);
-        parsedStreamingStatuses[key] = { error: "Invalid JSON in streaming status" };
+    try {
+      // Fetch everything we need in parallel (added REST server status)
+      const [
+        rawStatuses,
+        streamingStatuses,
+        rawVersions,
+        rawLatest,
+        rawRestStatuses, // <-- new
+      ] = await Promise.all([
+        redis.hgetall(SERVER_STATUS_KEY),
+        redis.hgetall(STREAMING_STATS_KEY),
+        redis.hgetall(SERVER_VERSIONS_KEY),
+        redis.get(LATEST_VERSION_KEY),
+        redis.hgetall(REST_SERVER_STATUS_KEY),
+      ]);
+  
+      // Parse streaming statuses
+      const parsedStreamingStatuses = {};
+      for (const [key, jsonData] of Object.entries(streamingStatuses || {})) {
+        try {
+          parsedStreamingStatuses[key] = JSON.parse(jsonData);
+        } catch (err) {
+          console.error(`Error parsing streaming status for key ${key}:`, err);
+          parsedStreamingStatuses[key] = { error: "Invalid JSON in streaming status" };
+        }
       }
-    }
-
-    // Clean up old entries (older than 5 minutes)
-    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
-    const entriesToDelete = [];
-    for (const [ip, jsonData] of Object.entries(rawStatuses || {})) {
-      try {
-        const data = JSON.parse(jsonData);
-        if (!data.updatedAt || data.updatedAt < fiveMinutesAgo) {
+  
+      // Clean up old entries for SERVER_STATUS_KEY only (unchanged)
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+      const entriesToDelete = [];
+      for (const [ip, jsonData] of Object.entries(rawStatuses || {})) {
+        try {
+          const data = JSON.parse(jsonData);
+          if (!data.updatedAt || data.updatedAt < fiveMinutesAgo) {
+            entriesToDelete.push(ip);
+          }
+        } catch {
           entriesToDelete.push(ip);
         }
-      } catch {
-        entriesToDelete.push(ip);
       }
-    }
-    if (entriesToDelete.length > 0) {
-      await redis.hdel(SERVER_STATUS_KEY, ...entriesToDelete);
-      entriesToDelete.forEach(ip => delete rawStatuses[ip]);
-    }
-
-    // Users across channels
-    const keys = await redis.keys("*_members");
-    const users = {};
-    for (const key of keys) {
-      const channel_id = key.replace("_members", "");
-      const entries = await redis.hgetall(key);
-      const parsedEntries = Object.entries(entries || {}).map(([socketId, value]) => ({
-        socketId,
-        channel_id,
-        ...JSON.parse(value)
-      }));
-      users[channel_id] = parsedEntries;
-    }
-
-    // Convert statuses hash -> array
-    const baseStatuses = Object.entries(rawStatuses || {}).map(([ip, json]) => {
+      if (entriesToDelete.length > 0) {
+        await redis.hdel(SERVER_STATUS_KEY, ...entriesToDelete);
+        entriesToDelete.forEach((ip) => delete rawStatuses[ip]);
+      }
+  
+      // Users across channels (unchanged)
+      const keys = await redis.keys("*_members");
+      const users = {};
+      for (const key of keys) {
+        const channel_id = key.replace("_members", "");
+        const entries = await redis.hgetall(key);
+        const parsedEntries = Object.entries(entries || {}).map(([socketId, value]) => ({
+          socketId,
+          channel_id,
+          ...JSON.parse(value),
+        }));
+        users[channel_id] = parsedEntries;
+      }
+  
+      // Convert statuses hash -> array (unchanged)
+      const baseStatuses = Object.entries(rawStatuses || {}).map(([ip, json]) => {
+        try {
+          return { ip, ...JSON.parse(json) };
+        } catch {
+          return { ip, error: "Invalid JSON in status value" };
+        }
+      });
+  
+      // Parse latest version (unchanged)
+      let latestVersion = null;
+      if (rawLatest) {
+        try {
+          const j = JSON.parse(rawLatest); // { version, zipFile, updatedAt, ... }
+          if (j && j.version && j.zipFile) latestVersion = j;
+        } catch (e) {
+          console.error("Invalid JSON in version_details:", e);
+        }
+      }
+  
+      // Per-server versions (unchanged)
+      const serverVersions = Object.fromEntries(
+        Object.entries(rawVersions || {}).map(([ip, json]) => {
+          try {
+            return [ip, JSON.parse(json)];
+          } catch {
+            return [ip, { error: "Invalid JSON in version value" }];
+          }
+        })
+      );
+  
+      // Merge current version into each status (unchanged)
+      const statuses = baseStatuses.map((s) => {
+        const verFromHash = serverVersions[s.ip];
+        const embeddedVersion = s.version ? { version: s.version, zipFile: s.zipFile } : null;
+  
+        const currentVersion = verFromHash?.version || embeddedVersion?.version || null;
+        const currentZipFile = verFromHash?.zipFile || embeddedVersion?.zipFile || null;
+  
+        const versionDetails = verFromHash || embeddedVersion || null;
+  
+        const isOutdated = latestVersion?.version
+          ? currentVersion
+            ? currentVersion !== latestVersion.version
+            : true
+          : null;
+  
+        return {
+          ...s,
+          versionDetails,
+          currentVersion,
+          currentZipFile,
+          isOutdated,
+        };
+      });
+  
+      // 👇 NEW: Parse REST server statuses — DO NOT DELETE STALE ENTRIES
+      // We parse and sanitize only; we don't remove anything from Redis.
+      const restStatuses = Object.entries(rawRestStatuses || {}).map(([ip, json]) => {
+        try {
+          const parsed = JSON.parse(json);
+          return sanitizeRestStatus({ ip, ...parsed });
+        } catch {
+          return { ip, error: "Invalid JSON in REST server status value" };
+        }
+      });
+  
+      // Sentinel info (unchanged)
+      let masters = [];
+      let slaves = [];
+      let redisError = null;
       try {
-        return { ip, ...JSON.parse(json) };
-      } catch {
-        return { ip, error: "Invalid JSON in status value" };
+        masters = await sentinelClient.send_command("SENTINEL", ["masters"]);
+        slaves = await sentinelClient.send_command(
+          "SENTINEL",
+          ["slaves", process.env.REDIS_MASTER_NAME || "mymaster"]
+        );
+      } catch (redisErr) {
+        redisError = redisErr.message;
+        console.error("Redis Sentinel error:", redisErr);
       }
-    });
-
-    // Parse latest version
-    let latestVersion = null;
-    if (rawLatest) {
-      try {
-        const j = JSON.parse(rawLatest); // { version, zipFile, updatedAt }
-        if (j && j.version && j.zipFile) latestVersion = j;
-      } catch (e) {
-        console.error("Invalid JSON in version_details:", e);
-      }
-    }
-
-    // Parse per-server versions
-    const serverVersions = Object.fromEntries(
-      Object.entries(rawVersions || {}).map(([ip, json]) => {
-        try { return [ip, JSON.parse(json)]; }
-        catch { return [ip, { error: "Invalid JSON in version value" }]; }
-      })
-    );
-
-    // Merge current version into each status
-    const statuses = baseStatuses.map(s => {
-      const verFromHash = serverVersions[s.ip];
-      // Also allow heartbeat-embedded version as fallback
-      const embeddedVersion = s.version ? { version: s.version, zipFile: s.zipFile } : null;
-
-      const currentVersion = verFromHash?.version || embeddedVersion?.version || null;
-      const currentZipFile = verFromHash?.zipFile || embeddedVersion?.zipFile || null;
-
-      const versionDetails = verFromHash || embeddedVersion || null;
-
-      const isOutdated = latestVersion?.version
-        ? (currentVersion ? currentVersion !== latestVersion.version : true)
-        : null;
-
-      return {
-        ...s,
-        versionDetails,          // full object we have for this server (may include timestamps)
-        currentVersion,          // convenience fields
-        currentZipFile,
-        isOutdated               // null if unknown latest; true/false if comparable
+  
+      const response = {
+        count: statuses.length,
+        users,
+        servers: global.servers,
+        patches: global.patches,
+        latestVersion,
+        statuses,                   // audio server statuses (with cleanup + version join)
+        restStatuses,               // 👈 REST server statuses (no cleanup, sanitized)
+        streamingStatuses: parsedStreamingStatuses,
+        redis: redisError ? { error: redisError } : { masters, slaves },
       };
-    });
-
-    // Sentinel info
-    let masters = [];
-    let slaves = [];
-    let redisError = null;
-    try {
-      masters = await sentinelClient.send_command("SENTINEL", ["masters"]);
-      slaves = await sentinelClient.send_command("SENTINEL", ["slaves", process.env.REDIS_MASTER_NAME || "mymaster"]);
-    } catch (redisErr) {
-      redisError = redisErr.message;
-      console.error("Redis Sentinel error:", redisErr);
+  
+      res.json(response);
+    } catch (err) {
+      res.status(500).json({
+        error: err.message,
+        redis: { error: err.message },
+      });
     }
-
-    const response = {
-      count: statuses.length,
-      users,
-      servers: global.servers,
-      patches: global.patches,
-      latestVersion,                 // 👈 global latest
-      statuses,                      // 👈 each with currentVersion + isOutdated
-      streamingStatuses: parsedStreamingStatuses,
-      redis: redisError ? { error: redisError } : { masters, slaves }
-    };
-
-    res.json(response);
-  } catch (err) {
-    res.status(500).json({
-      error: err.message,
-      redis: { error: err.message }
-    });
-  }
   });
 
   // --- Versioning endpoints ---

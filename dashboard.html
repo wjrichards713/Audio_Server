@@ -63,6 +63,7 @@
             <div class="tab" onclick="switchTab('users')">👥 Users</div>
             <div class="tab" onclick="switchTab('channels')">📢 Channels</div>
             <div class="tab" onclick="switchTab('servers')">🖥️ Servers</div>
+            <div class="tab" onclick="switchTab('rest')">🌐 REST Servers</div>
             <div class="tab" onclick="switchTab('streaming')">🎵 Streaming</div>
             <div class="tab" onclick="switchTab('redis')">🔴 Redis</div>
         </div>
@@ -117,6 +118,14 @@
                 <h2>🎵 Streaming Server Statistics</h2>
                 <div id="streamingOverview"></div>
                 <div id="streamingDetails"></div>
+            </div>
+        </div>
+
+        <div id="rest-tab" class="tab-content">
+            <div class="panel">
+                <h2>🌐 REST Server Statistics</h2>
+                <div id="restOverview"></div>
+                <div id="restDetails"></div>
             </div>
         </div>
 
@@ -273,6 +282,7 @@
             updatePatchesList(data);
             updateDetailedServers(data);
             updateQuickStats(data);
+            updateRestTab(data);
             updateStreamingTab(data);
             updateRedisTab(data);
         }
@@ -859,6 +869,199 @@
             element.classList.toggle('open');
             const arrow = element.querySelector('.collapsible-header span:last-child');
             arrow.textContent = element.classList.contains('open') ? '▲' : '▼';
+        }
+
+        function updateRestTab(data) {
+            const overviewContainer = document.getElementById('restOverview');
+            const detailsContainer = document.getElementById('restDetails');
+            const restStatuses = data.restStatuses || [];
+
+            // Handle empty REST data
+            if (restStatuses.length === 0) {
+                overviewContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">🌐</div>
+                        <h3>No REST Server Data</h3>
+                        <p>No REST server statistics available</p>
+                    </div>
+                `;
+                detailsContainer.innerHTML = '';
+                return;
+            }
+
+            // Calculate overview statistics
+            let totalCpuUsage = 0;
+            let totalMemoryUsage = 0;
+            let validServers = 0;
+            let activeServers = 0;
+
+            restStatuses.forEach(server => {
+                if (server.error) return;
+                
+                // Calculate average CPU usage for this server
+                if (server.cpu && Array.isArray(server.cpu)) {
+                    const serverCpuUsage = server.cpu.reduce((sum, core) => {
+                        const usage = parseFloat(core.usage.replace('%', ''));
+                        return sum + usage;
+                    }, 0) / server.cpu.length;
+                    totalCpuUsage += serverCpuUsage;
+                    validServers++;
+                }
+
+                // Memory usage
+                if (server.memory && server.memory.usagePercent) {
+                    const memUsage = parseFloat(server.memory.usagePercent.replace('%', ''));
+                    totalMemoryUsage += memUsage;
+                    if (memUsage > 0) activeServers++;
+                }
+            });
+
+            const avgCpuUsage = validServers > 0 ? (totalCpuUsage / validServers).toFixed(1) : 0;
+            const avgMemoryUsage = validServers > 0 ? (totalMemoryUsage / validServers).toFixed(1) : 0;
+
+            // Overview section
+            let overviewHtml = `
+                <div class="server-overview">
+                    <div class="overview-item">
+                        <div class="number">${restStatuses.length}</div>
+                        <div class="text">Total REST Servers</div>
+                    </div>
+                    <div class="overview-item">
+                        <div class="number">${validServers}</div>
+                        <div class="text">Active Servers</div>
+                    </div>
+                    <div class="overview-item">
+                        <div class="number">${avgCpuUsage}%</div>
+                        <div class="text">Avg CPU Usage</div>
+                    </div>
+                    <div class="overview-item">
+                        <div class="number">${avgMemoryUsage}%</div>
+                        <div class="text">Avg Memory Usage</div>
+                    </div>
+                </div>
+            `;
+
+            // Server-wise detailed breakdown
+            let detailsHtml = `
+                <div style="margin-top: 20px;">
+                    <h3 style="color: #4a5568; margin-bottom: 16px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                        🖥️ REST Server Details
+                    </h3>
+                    <div class="streaming-servers-grid">
+            `;
+
+            // Process each REST server
+            restStatuses.forEach(server => {
+                const serverIP = server.ip || 'Unknown';
+                const updatedAt = server.updatedAt;
+                const lastUpdate = formatTimestamp(updatedAt);
+                
+                // Determine server status
+                const hasError = server.error;
+                const statusClass = hasError ? 'error' : 'active';
+                const statusText = hasError ? 'Error' : 'Online';
+
+                // Calculate average CPU usage for this server
+                let avgCpuUsage = 'N/A';
+                let cpuDetails = '';
+                if (server.cpu && Array.isArray(server.cpu)) {
+                    const totalUsage = server.cpu.reduce((sum, core) => {
+                        const usage = parseFloat(core.usage.replace('%', ''));
+                        return sum + usage;
+                    }, 0);
+                    avgCpuUsage = (totalUsage / server.cpu.length).toFixed(1) + '%';
+                    
+                    cpuDetails = `
+                        <div class="collapsible" onclick="toggleCollapsible(this)">
+                            <div class="collapsible-header">
+                                <span>🔧 CPU Cores Details (${server.cpu.length} cores)</span>
+                                <span>▼</span>
+                            </div>
+                            <div class="collapsible-content">
+                                <div class="cpu-cores-grid">
+                                    ${server.cpu.map(core => {
+                                        const usage = parseFloat(core.usage.replace('%', ''));
+                                        let coreClass = '';
+                                        if (usage > 80) coreClass = 'high';
+                                        else if (usage > 50) coreClass = 'medium';
+                                        
+                                        return `<div class="cpu-core ${coreClass}" title="${core.model} - ${core.speed}MHz">
+                                                    C${core.core}: ${core.usage}
+                                                </div>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Memory usage
+                const memoryUsage = server.memory?.usagePercent || 'N/A';
+                const memoryDetails = server.memory ? `${server.memory.used} used of ${server.memory.total} (${server.memory.free} free)` : 'No memory data';
+
+                // Uptime
+                const uptime = server.uptime || 'Unknown';
+                let uptimeFormatted = uptime;
+                if (uptime && uptime.includes('seconds')) {
+                    const uptimeSeconds = parseInt(uptime.replace(' seconds', ''));
+                    uptimeFormatted = formatRelativeTime(uptimeSeconds);
+                }
+
+                detailsHtml += `
+                    <div class="detailed-server-card ${statusClass}">
+                        <div class="server-card-header">
+                            <div class="server-card-title">🌐 ${serverIP}</div>
+                            <div class="server-status-badge ${statusClass}">${statusText}</div>
+                        </div>
+                        
+                        ${!hasError ? `
+                            <div class="system-metrics-grid">
+                                <div class="system-metric">
+                                    <div class="value">${avgCpuUsage}</div>
+                                    <div class="label">CPU Usage</div>
+                                    ${avgCpuUsage !== 'N/A' ? `
+                                        <div class="progress-bar">
+                                            <div class="progress-fill" style="width: ${parseFloat(avgCpuUsage)}%"></div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                                <div class="system-metric">
+                                    <div class="value">${memoryUsage}</div>
+                                    <div class="label">Memory Usage</div>
+                                    ${memoryUsage !== 'N/A' ? `
+                                        <div class="progress-bar">
+                                            <div class="progress-fill" style="width: ${parseFloat(memoryUsage)}%"></div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 12px; font-size: 0.8rem; color: #666; text-align: center;">
+                                💾 Memory: ${memoryDetails}
+                            </div>
+
+                            <div style="margin-top: 8px; font-size: 0.8rem; color: #666; text-align: center;">
+                                ⏱️ Uptime: ${uptimeFormatted}
+                            </div>
+
+                            ${cpuDetails}
+                        ` : `
+                            <div style="margin-top: 12px; padding: 8px; background: #fed7d7; border-radius: 6px; border-left: 3px solid #f56565; color: #c53030; font-size: 0.85rem;">
+                                <strong>⚠️ Error:</strong> ${server.error}
+                            </div>
+                        `}
+
+                        <div style="margin-top: 12px; font-size: 0.8rem; color: #666; text-align: center;">
+                            🕒 Last Updated: ${lastUpdate}
+                        </div>
+                    </div>
+                `;
+            });
+
+            detailsHtml += `</div></div>`;
+
+            overviewContainer.innerHTML = overviewHtml;
+            detailsContainer.innerHTML = detailsHtml;
         }
 
         function updateRedisTab(data) {
