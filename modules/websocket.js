@@ -122,7 +122,7 @@ async function exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroup
     InstanceIds: [instanceId]
   }));
 
-  return { desiredBefore: currentDesired, desiredAfter: desired + 1 };
+  return { desiredBefore: desired, desiredAfter: desired + 1 };
 }
 
 
