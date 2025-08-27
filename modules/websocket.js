@@ -122,6 +122,9 @@ async function exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroup
     InstanceIds: [instanceId]
   }));
 
+  console.log("standby exit done");
+  
+
   return { desiredBefore: desired, desiredAfter: desired + 1 };
 }
 
@@ -284,6 +287,9 @@ async function startUpdate(wss, startedAt, redis, opts = {}) {
   const result = await updateAndReattachWithRollback({
     redis
   });
+
+  console.log("update done");
+  
 
   // Notify any clients that connected meanwhile
   Array.from(wss.clients).filter(c => c.readyState === WebSocket.OPEN).forEach(c => {
