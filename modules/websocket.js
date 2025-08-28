@@ -314,6 +314,8 @@ const getChannel = async (redis, id) => JSON.parse(await redis.hget('channels', 
 let _shutdownStarted = false;
 
 async function shutdownInstanceNow() {
+  console.log("inside shutdown");
+  
   if (_shutdownStarted) return { status: "already-started" };
   _shutdownStarted = true;
 
@@ -412,6 +414,8 @@ async function startTermination(wss, time) {
   }
   else {
     // aws terminate api call
+    console.log("shutdown start");
+    
     await shutdownInstanceNow();
     // terminateByPublicIp(region, global.serverPublicIP)
   }
