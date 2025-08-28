@@ -8,6 +8,7 @@ const {
   UpdateAutoScalingGroupCommand,
   EnterStandbyCommand,
   ExitStandbyCommand,
+  DetachInstancesCommand
 } = require("@aws-sdk/client-auto-scaling");
 
 const http = require("http");
