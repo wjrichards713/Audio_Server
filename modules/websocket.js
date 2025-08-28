@@ -368,7 +368,7 @@ const detachInstance = async (publicIp) => {
       })
     );
 
-    console.log("detatch done");
+    console.log("detatch done, ", detachResponse.Activities);
 
     return {
       success: true,
