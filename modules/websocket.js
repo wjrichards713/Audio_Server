@@ -442,10 +442,16 @@ function setupWebSocket(wss, redis, publisher, subscriber) {
         if (global.serverPublicIP == data) {
           console.log("processing detatch");
 
-          //detatch 
-          await detachInstance(data)
+         // detatch
+          const detachResult = await detachInstance(data);
 
-          startTermination(wss, Date.now());
+          if (detachResult.success) {
+            // Only proceed if detach was successful
+            startTermination(wss, Date.now());
+          } else {
+            console.error("Detach failed, not starting termination:", detachResult.error);
+            // Optionally, you could send back an error response here
+          }
         }
         return;
       }
