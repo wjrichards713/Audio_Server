@@ -106,15 +106,32 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         redis.hgetall(REST_SERVER_STATUS_KEY),
       ]);
   
-      // Parse streaming statuses
+      // Parse streaming statuses and clean up old entries
       const parsedStreamingStatuses = {};
+      const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+      const streamingEntriesToDelete = [];
+      
       for (const [key, jsonData] of Object.entries(streamingStatuses || {})) {
         try {
-          parsedStreamingStatuses[key] = JSON.parse(jsonData);
+          const streamingData = JSON.parse(jsonData);
+          
+          // Check if entry is older than 24 hours
+          if (!streamingData.updatedAt || streamingData.updatedAt < twentyFourHoursAgo) {
+            streamingEntriesToDelete.push(key);
+          } else {
+            parsedStreamingStatuses[key] = streamingData;
+          }
         } catch (err) {
           console.error(`Error parsing streaming status for key ${key}:`, err);
-          parsedStreamingStatuses[key] = { error: "Invalid JSON in streaming status" };
+          // Also remove entries with invalid JSON
+          streamingEntriesToDelete.push(key);
         }
+      }
+      
+      // Remove old streaming entries from Redis
+      if (streamingEntriesToDelete.length > 0) {
+        await redis.hdel(STREAMING_STATS_KEY, ...streamingEntriesToDelete);
+        console.log(`Removed ${streamingEntriesToDelete.length} old streaming server entries:`, streamingEntriesToDelete);
       }
   
       // Clean up old entries for SERVER_STATUS_KEY only (unchanged)

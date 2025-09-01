@@ -1360,6 +1360,9 @@
                         <div class="server-card-header">
                             <div class="server-card-title">🖥️ ${serverIP}</div>
                             <div class="server-status-badge ${statusClass}">${statusText}</div>
+                            <button class="detach-btn" onclick="detachInstance('${serverIP}')" title="Detach from Auto Scaling Group">
+                                🔗💥
+                            </button>
                         </div>
                         
                         <div class="system-metrics-grid">
