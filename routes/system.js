@@ -29,27 +29,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   // Store process start time
   const processStartTime = Date.now();
 
-  // let redisWritable = false;
-
-  // Check if Redis is writable before starting the interval
-  // redis.info('replication').then(info => {
-  //   redisWritable = !(info.includes('role:slave') || info.includes('role:replica'));
-  //   if (!redisWritable) {
-  //     console.warn("[system] Redis is read-only, server status updates disabled");
-  //   } else {
-  //     console.log("[system] Redis is writable, server status updates enabled");
-  //   }
-  // }).catch(err => {
-  //   console.error("[system] Failed to check Redis role:", err);
-  //   redisWritable = false;
-  // });
-
   setInterval(async () => {
-    // if (!redisWritable) {
-    //   return; // Skip if Redis is read-only
-    // }
-
-    // try {
     await redis.hset(`server_status`, `${global.serverPublicIP}`, JSON.stringify({
       ip: global.serverPublicIP,
       udpSockets: global.udpSockets,
@@ -78,14 +58,6 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       uptime: Math.floor((Date.now() - processStartTime) / 1000) + ' seconds',
       updatedAt: Date.now()
     }));
-    // } catch (err) {
-    //   if (err.message && err.message.includes('READONLY')) {
-    //     console.warn("[system] Redis became read-only, disabling server status updates");
-    //     redisWritable = false;
-    //   } else {
-    //     console.error("[system] Error updating server status:", err);
-    //   }
-    // }
   }, 1000);
 
   // Audio server connected users endpoint (original format)
@@ -108,7 +80,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   
       // Parse streaming statuses and clean up old entries
       const parsedStreamingStatuses = {};
-      const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
       const streamingEntriesToDelete = [];
       
       for (const [key, jsonData] of Object.entries(streamingStatuses || {})) {
@@ -116,7 +88,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
           const streamingData = JSON.parse(jsonData);
           
           // Check if entry is older than 24 hours
-          if (!streamingData.updatedAt || streamingData.updatedAt < twentyFourHoursAgo) {
+          if (!streamingData.updatedAt || streamingData.updatedAt < fiveMinutesAgo) {
             streamingEntriesToDelete.push(key);
           } else {
             parsedStreamingStatuses[key] = streamingData;
@@ -135,7 +107,6 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       }
   
       // Clean up old entries for SERVER_STATUS_KEY only (unchanged)
-      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
       const entriesToDelete = [];
       for (const [ip, jsonData] of Object.entries(rawStatuses || {})) {
         try {

@@ -1343,7 +1343,7 @@
             Object.entries(streamingStatuses).forEach(([serverKey, streamData]) => {
                 if (!streamData || typeof streamData !== 'object') return;
 
-                const serverIP = streamData.serverIP || 'Unknown';
+                const serverIP = streamData.serverIP || streamData.ip || 'Unknown';
                 const totalClients = streamData.totalConnectedClients || 0;
                 const connectedClients = streamData.connectedClients || {};
                 const channelStats = streamData.channelStats || {};
@@ -1355,10 +1355,56 @@
                 const statusClass = isActive ? 'active' : 'idle';
                 const statusText = isActive ? 'Active' : 'Idle';
 
+                // Calculate average CPU usage for this streaming server
+                let avgCpuUsage = 'N/A';
+                let cpuDetails = '';
+                if (streamData.cpu && Array.isArray(streamData.cpu)) {
+                    const totalUsage = streamData.cpu.reduce((sum, core) => {
+                        const usage = parseFloat(core.usage.replace('%', ''));
+                        return sum + usage;
+                    }, 0);
+                    avgCpuUsage = (totalUsage / streamData.cpu.length).toFixed(1) + '%';
+                    
+                    cpuDetails = `
+                        <div class="collapsible" onclick="toggleCollapsible(this)">
+                            <div class="collapsible-header">
+                                <span>🔧 CPU Cores Details (${streamData.cpu.length} cores)</span>
+                                <span>▼</span>
+                            </div>
+                            <div class="collapsible-content">
+                                <div class="cpu-cores-grid">
+                                    ${streamData.cpu.map(core => {
+                                        const usage = parseFloat(core.usage.replace('%', ''));
+                                        let coreClass = '';
+                                        if (usage > 80) coreClass = 'high';
+                                        else if (usage > 50) coreClass = 'medium';
+                                        
+                                        return `<div class="cpu-core ${coreClass}" title="${core.model} - ${core.speed}MHz">
+                                                    C${core.core}: ${core.usage}
+                                                </div>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Memory usage
+                const memoryUsage = streamData.memory?.usagePercent || 'N/A';
+                const memoryDetails = streamData.memory ? `${streamData.memory.used} used of ${streamData.memory.total} (${streamData.memory.free} free)` : 'No memory data';
+
+                // Uptime
+                const uptime = streamData.uptime || 'Unknown';
+                let uptimeFormatted = uptime;
+                if (uptime && uptime.includes('seconds')) {
+                    const uptimeSeconds = parseInt(uptime.replace(' seconds', ''));
+                    uptimeFormatted = formatRelativeTime(uptimeSeconds);
+                }
+
                 detailsHtml += `
                     <div class="detailed-server-card ${statusClass}">
                         <div class="server-card-header">
-                            <div class="server-card-title">🖥️ ${serverIP}</div>
+                            <div class="server-card-title">🎵 ${serverIP}</div>
                             <div class="server-status-badge ${statusClass}">${statusText}</div>
                             <button class="detach-btn" onclick="detachInstance('${serverIP}')" title="Detach from Auto Scaling Group">
                                 🔗💥
@@ -1374,11 +1420,39 @@
                                 <div class="value">${Object.keys(connectedClients).length}</div>
                                 <div class="label">Active Channels</div>
                             </div>
+                            <div class="system-metric">
+                                <div class="value">${avgCpuUsage}</div>
+                                <div class="label">CPU Usage</div>
+                                ${avgCpuUsage !== 'N/A' ? `
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: ${parseFloat(avgCpuUsage)}%"></div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                            <div class="system-metric">
+                                <div class="value">${memoryUsage}</div>
+                                <div class="label">Memory Usage</div>
+                                ${memoryUsage !== 'N/A' ? `
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: ${parseFloat(memoryUsage)}%"></div>
+                                    </div>
+                                ` : ''}
+                            </div>
                         </div>
 
                         <div style="margin-top: 12px; font-size: 0.8rem; color: #666; text-align: center;">
+                            💾 Memory: ${memoryDetails}
+                        </div>
+
+                        <div style="margin-top: 8px; font-size: 0.8rem; color: #666; text-align: center;">
+                            ⏱️ Uptime: ${uptimeFormatted}
+                        </div>
+
+                        <div style="margin-top: 8px; font-size: 0.8rem; color: #666; text-align: center;">
                             🕒 Last Updated: ${lastUpdate}
                         </div>
+
+                        ${cpuDetails}
                 `;
 
                 // Show channels and their clients
