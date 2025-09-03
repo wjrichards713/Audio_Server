@@ -20,6 +20,8 @@ function createSocket(p = 0) {
       global.udpSockets[port] = socket;
       console.log(`UDP Socket listening on port ${port}`);
       socket.on("message", (msg, rinfo) => {
+        console.log("msg: ", msg, "rinfo", rinfo);
+        
         reinitTimeout();
         global.udpClients[port] = rinfo;
         try {
