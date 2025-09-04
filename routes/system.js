@@ -282,6 +282,9 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         redisError = redisErr.message;
         console.error("Redis Sentinel error:", redisErr);
       }
+
+      console.log(rawStatuses);
+      
   
       const response = {
         count: statuses.length,
