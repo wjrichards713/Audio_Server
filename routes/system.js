@@ -26,8 +26,10 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
     };
   }
 
+  const processStartTime = Date.now();
+
   async function getRegionAndInstanceId() {
-    // 1. Get IMDSv2 token
+    // 1) IMDSv2 token
     const token = await new Promise((resolve, reject) => {
       const req = http.request(
         {
@@ -46,8 +48,8 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       req.on("error", reject);
       req.end();
     });
-  
-    // 2. Fetch the instance identity doc (region + instanceId, etc.)
+
+    // 2) Instance identity doc
     return await new Promise((resolve, reject) => {
       const req = http.request(
         {
@@ -66,8 +68,8 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
               resolve({
                 region: doc.region,
                 instanceId: doc.instanceId,
-                accountId: doc.accountId,   // extra info if you need it
-                availabilityZone: doc.availabilityZone
+                accountId: doc.accountId,
+                availabilityZone: doc.availabilityZone,
               });
             } catch (e) {
               reject(e);
@@ -80,50 +82,57 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
     });
   }
 
-  function getCpuInfo() {
+  async function getCpuInfo() {
     const cpus = os.cpus();
     return cpus.map((core, index) => {
       const total = Object.values(core.times).reduce((acc, tv) => acc + tv, 0);
       const usage = ((total - core.times.idle) / total) * 100;
-
       return {
         core: index,
         model: core.model,
         speed: core.speed,
-        usage: usage.toFixed(2) + '%'
+        usage: usage.toFixed(2) + "%",
       };
     });
   }
 
-  function getMemInfo() {
-      return {
-        total: (os.totalmem() / 1024 / 1024).toFixed(2) + ' MB',
-        free: (os.freemem() / 1024 / 1024).toFixed(2) + ' MB',
-        used: ((os.totalmem() - os.freemem()) / 1024 / 1024).toFixed(2) + ' MB',
-        usagePercent: ((1 - os.freemem() / os.totalmem()) * 100).toFixed(2) + '%'
-      };
+  async function getMemInfo() {
+    const totalBytes = os.totalmem();
+    const freeBytes = os.freemem();
+    const usedBytes = totalBytes - freeBytes;
+    const asMB = (n) => (n / 1024 / 1024).toFixed(2) + " MB";
+    return {
+      total: asMB(totalBytes),
+      free: asMB(freeBytes),
+      used: asMB(usedBytes),
+      usage_percent: ((usedBytes / totalBytes) * 100).toFixed(2) + "%", // snake_case + % like your sample
+    };
   }
 
-  // Store process start time
-  const processStartTime = Date.now();
-
+  // push every second
   setInterval(async () => {
-    const {region} = getRegionAndInstanceId()
-    await redis.hset(`server_status`, global.serverPublicIP, JSON.stringify({
-      ip: global.serverPublicIP,
-      region: region, // <--- add region info
-      requests_per_second: global.requestsPerSecond || 0,
-      average_response_time_ms: global.avgResponseTime || 0,
-      failed_requests: global.failedRequests || 0,
-      channels: global.channelsCount || 0,              // streaming servers
-      connected_clients: global.connectedClients || 0,  // streaming servers
-      cpu: getCpuInfo(),
-      memory: getMemInfo(),
-      uptime: Math.floor((Date.now() - processStartTime) / 1000) + ' seconds',
-      updated_at: Date.now()
-    }));
-  }, 1000);
+    try {
+      const { region } = await getRegionAndInstanceId();
 
+      const payload = {
+        ip: global.serverPublicIP,
+        name: global.serverName,                 // "Server AF"
+        region,                                  // e.g. "us-east-1"
+        status: global.serverStatus,             // "online"
+        requests_per_second: global.requestsPerSecond || 0,
+        average_response_time_ms: global.avgResponseTime || 0,
+        failed_requests: global.failedRequests || 0,
+        cpu: await getCpuInfo(),                 // [{ core, model, speed, usage }]
+        memory: await getMemInfo(),              // { total, free, used, usage_percent }
+        uptime: Math.floor((Date.now() - processStartTime) / 1000) + " seconds",
+        updated_at: Date.now(),                  // epoch ms
+      };
+
+      await redis.hset("server_status", global.serverPublicIP, JSON.stringify(payload));
+    } catch (err) {
+      console.error("Failed to update server_status:", err);
+    }
+  }, 1000);
   // Audio server connected users endpoint (original format)
   router.get("/audio-server-connected-users", async (req, res) => {
     try {
