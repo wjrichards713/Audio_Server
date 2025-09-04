@@ -82,6 +82,14 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
     });
   }
 
+  function parseMHzFromModel(model) {
+    const m = model.match(/@\s*([\d.]+)\s*GHz/i);
+    if (!m) return null;
+    const ghz = parseFloat(m[1]);
+    if (Number.isFinite(ghz)) return Math.round(ghz * 1000);
+    return null;
+  }
+
   function getCpuSpeedMHz(core) {
   // 1) Node reports (may be 0 on some platforms)
   if (core.speed && core.speed > 0) return core.speed;
