@@ -1,6 +1,6 @@
 const express = require('express');
 const os = require('os');
-const { SchedulerClient, CreateScheduleCommand } = require("@aws-sdk/client-scheduler");
+const http = require("http");
 
 
 function createSystemRoutes(redis, publisher, sentinelClient) {
