@@ -150,6 +150,9 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         requests_per_second: global.requestsPerSecond || 0,
         average_response_time_ms: global.avgResponseTime || 0,
         failed_requests: global.failedRequests || 0,
+        udpSockets: global.udpSockets, 
+        members: global.members, 
+        udpClients: global.udpClients,
         cpu: await getCpuInfo(),                 // [{ core, model, speed, usage }]
         memory: await getMemInfo(),              // { total, free, used, usage_percent }
         uptime: Math.floor((Date.now() - processStartTime) / 1000) + " seconds",
