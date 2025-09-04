@@ -82,6 +82,26 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
     });
   }
 
+  function getCpuSpeedMHz(core) {
+  // 1) Node reports (may be 0 on some platforms)
+  if (core.speed && core.speed > 0) return core.speed;
+
+  // 2) Parse from model string
+  const parsed = parseMHzFromModel(core.model || "");
+  if (parsed) return parsed;
+
+  // 3) /proc/cpuinfo (best-effort)
+  try {
+    const txt = fs.readFileSync("/proc/cpuinfo", "utf8");
+    const mhzMatch = txt.match(/cpu MHz\s*:\s*([\d.]+)/i);
+    if (mhzMatch) return Math.round(parseFloat(mhzMatch[1]));
+  } catch {}
+
+  // Fallback unknown
+  return 0;
+}
+
+
   async function getCpuInfo() {
     const cpus = os.cpus();
     return cpus.map((core, index) => {
@@ -90,7 +110,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       return {
         core: index,
         model: core.model,
-        speed: core.speed,
+        speed: getCpuSpeedMHz(core),
         usage: usage.toFixed(2) + "%",
       };
     });
