@@ -26,37 +26,101 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
     };
   }
 
-  // Store process start time
-  const processStartTime = Date.now();
+  async function getRegionAndInstanceId() {
+    // 1. Get IMDSv2 token
+    const token = await new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          method: "PUT",
+          host: "169.254.169.254",
+          path: "/latest/api/token",
+          headers: { "X-aws-ec2-metadata-token-ttl-seconds": "60" },
+          timeout: 1000,
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (c) => (data += c));
+          res.on("end", () => resolve(data));
+        }
+      );
+      req.on("error", reject);
+      req.end();
+    });
+  
+    // 2. Fetch the instance identity doc (region + instanceId, etc.)
+    return await new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          method: "GET",
+          host: "169.254.169.254",
+          path: "/latest/dynamic/instance-identity/document",
+          headers: { "X-aws-ec2-metadata-token": token },
+          timeout: 1000,
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (c) => (data += c));
+          res.on("end", () => {
+            try {
+              const doc = JSON.parse(data);
+              resolve({
+                region: doc.region,
+                instanceId: doc.instanceId,
+                accountId: doc.accountId,   // extra info if you need it
+                availabilityZone: doc.availabilityZone
+              });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        }
+      );
+      req.on("error", reject);
+      req.end();
+    });
+  }
 
-  setInterval(async () => {
-    await redis.hset(`server_status`, `${global.serverPublicIP}`, JSON.stringify({
-      ip: global.serverPublicIP,
-      udpSockets: global.udpSockets,
-      members: global.members,
-      udpClients: global.udpClients,
-      cpu: function getCpuInfo() {
-        const cpus = os.cpus();
-        return cpus.map((core, index) => {
-          const total = Object.values(core.times).reduce((acc, tv) => acc + tv, 0);
-          const usage = ((total - core.times.idle) / total) * 100;
+  function getCpuInfo() {
+    const cpus = os.cpus();
+    return cpus.map((core, index) => {
+      const total = Object.values(core.times).reduce((acc, tv) => acc + tv, 0);
+      const usage = ((total - core.times.idle) / total) * 100;
 
-          return {
-            core: index,
-            model: core.model,
-            speed: core.speed,
-            usage: usage.toFixed(2) + '%'
-          };
-        });
-      }(),
-      memory: {
+      return {
+        core: index,
+        model: core.model,
+        speed: core.speed,
+        usage: usage.toFixed(2) + '%'
+      };
+    });
+  }
+
+  function getMemInfo() {
+      return {
         total: (os.totalmem() / 1024 / 1024).toFixed(2) + ' MB',
         free: (os.freemem() / 1024 / 1024).toFixed(2) + ' MB',
         used: ((os.totalmem() - os.freemem()) / 1024 / 1024).toFixed(2) + ' MB',
         usagePercent: ((1 - os.freemem() / os.totalmem()) * 100).toFixed(2) + '%'
-      },
+      };
+  }
+
+  // Store process start time
+  const processStartTime = Date.now();
+
+  setInterval(async () => {
+    const {region} = getRegionAndInstanceId()
+    await redis.hset(`server_status`, global.serverPublicIP, JSON.stringify({
+      ip: global.serverPublicIP,
+      region: region, // <--- add region info
+      requests_per_second: global.requestsPerSecond || 0,
+      average_response_time_ms: global.avgResponseTime || 0,
+      failed_requests: global.failedRequests || 0,
+      channels: global.channelsCount || 0,              // streaming servers
+      connected_clients: global.connectedClients || 0,  // streaming servers
+      cpu: getCpuInfo(),
+      memory: getMemInfo(),
       uptime: Math.floor((Date.now() - processStartTime) / 1000) + ' seconds',
-      updatedAt: Date.now()
+      updated_at: Date.now()
     }));
   }, 1000);
 
