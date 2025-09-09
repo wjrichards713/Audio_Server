@@ -575,10 +575,13 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         const connections = Object.entries(entries || {}).map(([socketId, value]) => {
           try {
             const userData = JSON.parse(value);
+            const [ip, port] = socketId.split(":");
             return {
               user_name: userData.user_name || userData.userName || "Unknown User",
               agency_name: userData.agency_name || userData.agencyName || "Unknown Agency", 
-              time: userData.time || userData.timestamp || Date.now()
+              time: userData.time || userData.timestamp || Date.now(),
+              ip,
+              port
             };
           } catch {
             return null;
@@ -588,10 +591,10 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         if (connections.length > 0) {
           channels.push({
             channel_id,
-            servers: audioServers.map(server => ({
-              ip: server.ip,
-              port: 3002,
-              region: server.region
+            servers: connections.map(conn => ({
+              ip: conn.ip,
+              port: conn.port, // use parsed port
+              region: audioServers.find(s => s.ip === conn.ip)?.region || "unknown"
             })),
             connections,
             patches: [channel_id] // Default patch mapping
