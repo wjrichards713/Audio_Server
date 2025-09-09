@@ -1,7 +1,7 @@
 const express = require('express');
 const os = require('os');
 const http = require("http");
-
+const fs  = require("fs");
 
 function createSystemRoutes(redis, publisher, sentinelClient) {
   const router = express.Router();
@@ -146,7 +146,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         ip: global.serverPublicIP,
         name: global.serverName,                 // "Server AF"
         region,                                  // e.g. "us-east-1"
-        status: global.serverStatus,             // "online"
+        status: "online",             // "online"
         requests_per_second: global.requestsPerSecond || 0,
         average_response_time_ms: global.avgResponseTime || 0,
         failed_requests: global.failedRequests || 0,
@@ -181,7 +181,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         redis.get(LATEST_VERSION_KEY),
         redis.hgetall(REST_SERVER_STATUS_KEY),
       ]);
-  
+      console.log(streamingStatuses);      
       // Parse streaming statuses and clean up old entries
       const parsedStreamingStatuses = {};
       const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
@@ -321,10 +321,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       } catch (redisErr) {
         redisError = redisErr.message;
         console.error("Redis Sentinel error:", redisErr);
-      }
-
-      console.log(rawStatuses);
-      
+      }      
   
       const response = {
         count: statuses.length,
@@ -338,6 +335,286 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         redis: redisError ? { error: redisError } : { masters, slaves },
       };
   
+      res.json(response);
+    } catch (err) {
+      res.status(500).json({
+        error: err.message,
+        redis: { error: err.message },
+      });
+    }
+  });
+
+  router.get("/audio-server-connected-users-updated", async (req, res) => {
+    try {
+      // Fetch everything we need in parallel
+      const [
+        rawStatuses,
+        streamingStatuses,
+        rawVersions,
+        rawLatest,
+        rawRestStatuses,
+      ] = await Promise.all([
+        redis.hgetall(SERVER_STATUS_KEY),
+        redis.hgetall(STREAMING_STATS_KEY),
+        redis.hgetall(SERVER_VERSIONS_KEY),
+        redis.get(LATEST_VERSION_KEY),
+        redis.hgetall(REST_SERVER_STATUS_KEY),
+      ]);
+
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+
+      // Clean up old entries for SERVER_STATUS_KEY
+      const entriesToDelete = [];
+      for (const [ip, jsonData] of Object.entries(rawStatuses || {})) {
+        try {
+          const data = JSON.parse(jsonData);
+          if (!data.updated_at || data.updated_at < fiveMinutesAgo) {
+            entriesToDelete.push(ip);
+          }
+        } catch {
+          entriesToDelete.push(ip);
+        }
+      }
+      if (entriesToDelete.length > 0) {
+        await redis.hdel(SERVER_STATUS_KEY, ...entriesToDelete);
+        entriesToDelete.forEach((ip) => delete rawStatuses[ip]);
+      }
+
+      // Parse latest version
+      let latestVersion = null;
+      if (rawLatest) {
+        try {
+          const j = JSON.parse(rawLatest);
+          if (j && j.version && j.zipFile) latestVersion = j;
+        } catch (e) {
+          console.error("Invalid JSON in version_details:", e);
+        }
+      }
+
+      // Per-server versions
+      const serverVersions = Object.fromEntries(
+        Object.entries(rawVersions || {}).map(([ip, json]) => {
+          try {
+            return [ip, JSON.parse(json)];
+          } catch {
+            return [ip, { error: "Invalid JSON in version value" }];
+          }
+        })
+      );
+
+      // Transform audio server data from server_status
+      const audioServers = Object.entries(rawStatuses || {}).map(([ip, json]) => {
+        try {
+          const data = JSON.parse(json);
+          const verFromHash = serverVersions[ip];
+          const embeddedVersion = data.version ? { current: data.version, zip_file: data.zipFile } : null;
+          
+          const currentVersion = verFromHash?.version || embeddedVersion?.current || null;
+          const isOutdated = latestVersion?.version
+            ? currentVersion
+              ? currentVersion !== latestVersion.version
+              : true
+            : null;
+
+          return {
+            ip: data.ip,
+            name: data.name || `Server ${ip.split('.').pop()}`,
+            region: data.region || "unknown",
+            status: data.status || "online",
+            requests_per_second: data.requests_per_second || 0,
+            average_response_time_ms: data.average_response_time_ms || 0,
+            failed_requests: data.failed_requests || 0,
+            cpu: data.cpu || [],
+            memory: data.memory || {},
+            uptime: data.uptime || "0 seconds",
+            updated_at: data.updated_at,
+            version: embeddedVersion,
+            is_outdated: isOutdated
+          };
+        } catch {
+          return { ip, error: "Invalid JSON in status value" };
+        }
+      });
+
+      // Transform streaming server data
+      const streamingServers = Object.entries(streamingStatuses || {}).map(([ip, json]) => {
+        try {
+          const data = JSON.parse(json);
+          // Check if entry is too old
+          if (!data.updated_at || data.updated_at < fiveMinutesAgo) {
+            return null;
+          }
+          return {
+            ip: data.ip,
+            name: data.name || `Streaming server`,
+            region: data.region || "unknown", 
+            status: data.status || "online",
+            connected_clients: data.connected_clients || 0,
+            channels: Object.keys(data.channels || {}).length,
+            requests_per_second: data.requests_per_second || 0,
+            average_response_time_ms: data.average_response_time_ms || 0,
+            failed_requests: data.failed_requests || 0,
+            cpu: data.cpu || [],
+            memory: data.memory || {},
+            uptime: data.uptime || "0 seconds",
+            updated_at: data.updated_at
+          };
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+
+      // Transform REST API server data
+      const restApiServers = Object.entries(rawRestStatuses || {}).map(([ip, json]) => {
+        try {
+          const data = JSON.parse(json);
+          return {
+            ip: data.ip,
+            name: data.name || `Local Server`,
+            region: data.region || "unknown",
+            status: data.status || "online",
+            requests_per_second: data.requests_per_second || 0,
+            average_response_time_ms: data.average_response_time_ms || 0,
+            failed_requests: data.failed_requests || 0,
+            cpu: data.cpu || [],
+            memory: data.memory || {},
+            uptime: data.uptime || "0 seconds",
+            updated_at: data.updated_at
+          };
+        } catch {
+          return { ip, error: "Invalid JSON in REST server status value" };
+        }
+      });
+
+      // Get Redis info (keep as is)
+      let redisNodes = [];
+      let redisError = null;
+      try {
+        const masters = await sentinelClient.send_command("SENTINEL", ["masters"]);
+        const slaves = await sentinelClient.send_command(
+          "SENTINEL",
+          ["slaves", process.env.REDIS_MASTER_NAME || "mymaster"]
+        );
+
+        // Transform Redis data to match expected format
+        redisNodes = [
+          ...masters.map(master => ({
+            role: "master",
+            name: `Server ${master[1]}`,
+            ip: master[3],
+            port: parseInt(master[5]),
+            region: "us-east-1", // Default region
+            status: master[9] === "master" ? "ok" : "down",
+            connected_slaves: parseInt(master[25]) || 0,
+            sentinels: parseInt(master[27]) || 0,
+            quorum: parseInt(master[7]) || 0,
+            last_ping_ms: parseInt(master[19]) || 0,
+            replication: {
+              offset: parseInt(master[21]) || 0
+            },
+            cpu: [
+              {
+                core: 0,
+                model: "Intel(R) Xeon(R) CPU",
+                speed: 2500,
+                usage: "2.1%"
+              }
+            ],
+            memory: {
+              total: "2048 MB",
+              free: "1652 MB", 
+              used: "396 MB",
+              usage_percent: "19.3%"
+            },
+            updated_at: Date.now()
+          })),
+          ...slaves.map(slave => ({
+            role: "replica",
+            name: `Server ${slave[1]}`,
+            ip: slave[3],
+            port: parseInt(slave[5]),
+            region: "us-west-2", // Default region
+            status: slave[9] === "slave" ? "ok" : "down",
+            master_host: slave[11],
+            master_port: parseInt(slave[13]),
+            last_ping_ms: parseInt(slave[19]) || 0,
+            replication: {
+              state: slave[21] === "0" ? "online" : "offline",
+              offset: parseInt(slave[23]) || 0,
+              lag_bytes: 0
+            },
+            priority: 100,
+            cpu: [
+              {
+                core: 0,
+                model: "Intel(R) Xeon(R) CPU", 
+                speed: 2500,
+                usage: "1.4%"
+              }
+            ],
+            memory: {
+              total: "2048 MB",
+              free: "1708 MB",
+              used: "340 MB", 
+              usage_percent: "16.6%"
+            },
+            updated_at: Date.now()
+          }))
+        ];
+      } catch (redisErr) {
+        redisError = redisErr.message;
+        console.error("Redis Sentinel error:", redisErr);
+      }
+
+      // Users across channels
+      const keys = await redis.keys("*_members");
+      const channels = [];
+      for (const key of keys) {
+        const channel_id = key.replace("_members", "");
+        const entries = await redis.hgetall(key);
+        const connections = Object.entries(entries || {}).map(([socketId, value]) => {
+          try {
+            const userData = JSON.parse(value);
+            return {
+              user_name: userData.user_name || userData.userName || "Unknown User",
+              agency_name: userData.agency_name || userData.agencyName || "Unknown Agency", 
+              time: userData.time || userData.timestamp || Date.now()
+            };
+          } catch {
+            return null;
+          }
+        }).filter(Boolean);
+
+        if (connections.length > 0) {
+          channels.push({
+            channel_id,
+            servers: audioServers.map(server => ({
+              ip: server.ip,
+              port: 3002,
+              region: server.region
+            })),
+            connections,
+            patches: [channel_id] // Default patch mapping
+          });
+        }
+      }
+
+      const response = {
+        audio_server: {
+          servers: audioServers
+        },
+        rest_api: {
+          servers: restApiServers  
+        },
+        redis: {
+          nodes: redisError ? [] : redisNodes
+        },
+        streaming: {
+          servers: streamingServers
+        },
+        channels: channels
+      };
+
       res.json(response);
     } catch (err) {
       res.status(500).json({
@@ -523,6 +800,11 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   router.get('/dashboard', (req, res) => {
     res.sendFile('dashboard.html', { root: '.' });
   });
+
+  router.get('/newdashboard', (req, res) => {
+    res.sendFile('newdashboard.html', { root: '.' });
+  });
+  
   
   // EC2 instance detachment endpoint
   router.get('/detach-instance/:ip', async (req, res) => {
