@@ -78,9 +78,13 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       path: "/latest/meta-data/tags/instance/Name",
       headers: { "X-aws-ec2-metadata-token": token },
     });
+    console.log(81, name);
 
     // Normalize empty/absent to undefined
     if (name != null) name = name.trim() || undefined;
+
+    console.log(86, name);
+    
 
     return {
       region: doc.region,
@@ -191,7 +195,6 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         redis.get(LATEST_VERSION_KEY),
         redis.hgetall(REST_SERVER_STATUS_KEY),
       ]);
-      console.log(streamingStatuses);      
       // Parse streaming statuses and clean up old entries
       const parsedStreamingStatuses = {};
       const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
