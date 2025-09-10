@@ -580,32 +580,47 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       for (const key of keys) {
         const channel_id = key.replace("_members", "");
         const entries = await redis.hgetall(key);
-        const connections = Object.entries(entries || {}).map(([socketId, value]) => {
-          try {
-            const userData = JSON.parse(value);
-            const [ip, port] = socketId.split(":");
-            return {
-              user_name: userData.user_name || userData.userName || "Unknown User",
-              agency_name: userData.agency_name || userData.agencyName || "Unknown Agency", 
-              time: userData.time || userData.timestamp || Date.now(),
-              ip,
-              port
-            };
-          } catch {
-            return null;
-          }
-        }).filter(Boolean);
+
+        // Collect unique server endpoints (ip:port) with numeric port
+        const serverEndpoints = new Map();
+
+        const connections = Object.entries(entries || {})
+          .map(([socketId, value]) => {
+            try {
+              const userData = JSON.parse(value);
+              const [ip, portStr] = socketId.split(":");
+              const port = Number.parseInt(portStr, 10);
+
+              // Track server endpoints (numeric port) for the servers array
+              if (ip && Number.isFinite(port)) {
+                serverEndpoints.set(`${ip}:${port}`, { ip, port });
+              }
+
+              // Return ONLY the expected connection fields (no ip/port)
+              return {
+                user_name: userData.user_name || userData.userName || "Unknown User",
+                agency_name: userData.agency_name || userData.agencyName || "Unknown Agency",
+                time: userData.time || userData.timestamp || Date.now(),
+              };
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean);
+
+        // Build servers from the collected endpoints with numeric port
+        const servers = Array.from(serverEndpoints.values()).map(({ ip, port }) => ({
+          ip,
+          port, // number, not string
+          region: audioServers.find((s) => s.ip === ip)?.region || "unknown",
+        }));
 
         if (connections.length > 0) {
           channels.push({
             channel_id,
-            servers: connections.map(conn => ({
-              ip: conn.ip,
-              port: conn.port, // use parsed port
-              region: audioServers.find(s => s.ip === conn.ip)?.region || "unknown"
-            })),
-            connections,
-            patches: [channel_id] // Default patch mapping
+            servers,       // only { ip, port (number), region }
+            connections,   // no ip/port here
+            patches: [channel_id],
           });
         }
       }
