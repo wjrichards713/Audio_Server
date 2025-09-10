@@ -28,58 +28,67 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
 
   const processStartTime = Date.now();
 
-  async function getRegionAndInstanceId() {
+  async function imdsRequest(opts) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { timeout: 1000, ...opts },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => {
+          // treat 404 as "not available" rather than hard failure
+          if (res.statusCode === 404) resolve(null);
+          else if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) resolve(data);
+          else reject(new Error(`IMDS HTTP ${res.statusCode}: ${data}`));
+        });
+      }
+    );
+    req.on("timeout", () => { req.destroy(new Error("IMDS request timeout")); });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+  async function getRegionInstanceAndName() {
     // 1) IMDSv2 token
-    const token = await new Promise((resolve, reject) => {
-      const req = http.request(
-        {
-          method: "PUT",
-          host: "169.254.169.254",
-          path: "/latest/api/token",
-          headers: { "X-aws-ec2-metadata-token-ttl-seconds": "60" },
-          timeout: 1000,
-        },
-        (res) => {
-          let data = "";
-          res.on("data", (c) => (data += c));
-          res.on("end", () => resolve(data));
-        }
-      );
-      req.on("error", reject);
-      req.end();
+    const token = await imdsRequest({
+      method: "PUT",
+      host: "169.254.169.254",
+      path: "/latest/api/token",
+      headers: { "X-aws-ec2-metadata-token-ttl-seconds": "60" },
     });
 
     // 2) Instance identity doc
-    return await new Promise((resolve, reject) => {
-      const req = http.request(
-        {
-          method: "GET",
-          host: "169.254.169.254",
-          path: "/latest/dynamic/instance-identity/document",
-          headers: { "X-aws-ec2-metadata-token": token },
-          timeout: 1000,
-        },
-        (res) => {
-          let data = "";
-          res.on("data", (c) => (data += c));
-          res.on("end", () => {
-            try {
-              const doc = JSON.parse(data);
-              resolve({
-                region: doc.region,
-                instanceId: doc.instanceId,
-                accountId: doc.accountId,
-                availabilityZone: doc.availabilityZone,
-              });
-            } catch (e) {
-              reject(e);
-            }
-          });
-        }
-      );
-      req.on("error", reject);
-      req.end();
+    const docStr = await imdsRequest({
+      method: "GET",
+      host: "169.254.169.254",
+      path: "/latest/dynamic/instance-identity/document",
+      headers: { "X-aws-ec2-metadata-token": token },
     });
+
+    const doc = JSON.parse(docStr);
+
+    // 3) Try IMDSv2 tags for 'Name' (requires "Instance tags in metadata" to be enabled on the instance)
+    //    Endpoints:
+    //      /latest/meta-data/tags/instance            -> lists keys (newline separated)
+    //      /latest/meta-data/tags/instance/Name      -> value for Name key
+    let name = await imdsRequest({
+      method: "GET",
+      host: "169.254.169.254",
+      path: "/latest/meta-data/tags/instance/Name",
+      headers: { "X-aws-ec2-metadata-token": token },
+    });
+
+    // Normalize empty/absent to undefined
+    if (name != null) name = name.trim() || undefined;
+
+    return {
+      region: doc.region,
+      instanceId: doc.instanceId,
+      accountId: doc.accountId,
+      availabilityZone: doc.availabilityZone,
+      name, // undefined if tag not present or tags-in-metadata disabled
+    };
   }
 
   function parseMHzFromModel(model) {
@@ -140,11 +149,11 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   // push every second
   setInterval(async () => {
     try {
-      const { region } = await getRegionAndInstanceId();
+      const { region, name } = await getRegionInstanceAndName();
 
       const payload = {
         ip: global.serverPublicIP,
-        name: global.serverName,                 // "Server AF"
+        name: name,                 // "Server AF"
         region,                                  // e.g. "us-east-1"
         status: "online",             // "online"
         requests_per_second: global.requestsPerSecond || 0,
@@ -164,6 +173,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       console.error("Failed to update server_status:", err);
     }
   }, 1000);
+  
   // Audio server connected users endpoint (original format)
   router.get("/audio-server-connected-users", async (req, res) => {
     try {
