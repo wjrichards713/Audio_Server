@@ -29,25 +29,25 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   const processStartTime = Date.now();
 
   async function imdsRequest(opts) {
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      { timeout: 1000, ...opts },
-      (res) => {
-        let data = "";
-        res.on("data", (c) => (data += c));
-        res.on("end", () => {
-          // treat 404 as "not available" rather than hard failure
-          if (res.statusCode === 404) resolve(null);
-          else if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) resolve(data);
-          else reject(new Error(`IMDS HTTP ${res.statusCode}: ${data}`));
-        });
-      }
-    );
-    req.on("timeout", () => { req.destroy(new Error("IMDS request timeout")); });
-    req.on("error", reject);
-    req.end();
-  });
-}
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        { timeout: 1000, ...opts },
+        (res) => {
+          let data = "";
+          res.on("data", (c) => (data += c));
+          res.on("end", () => {
+            // treat 404 as "not available" rather than hard failure
+            if (res.statusCode === 404) resolve(null);
+            else if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) resolve(data);
+            else reject(new Error(`IMDS HTTP ${res.statusCode}: ${data}`));
+          });
+        }
+      );
+      req.on("timeout", () => { req.destroy(new Error("IMDS request timeout")); });
+      req.on("error", reject);
+      req.end();
+    });
+  }
 
   async function getRegionInstanceAndName() {
     // 1) IMDSv2 token

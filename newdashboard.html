@@ -376,6 +376,7 @@
                             <div class="server-header">
                                 <div class="server-ip">🎵 ${server.ip} (${server.name})</div>
                                 <div class="server-status-badge ${statusClass}">${statusText}</div>
+                                <div style="font-size: 0.8rem; color: #666; margin-top: 2px;">📍 ${server.region || 'Unknown'}</div>
                                 ${versionInfo}
                                 ${server.is_outdated ? `<button class="update-btn" onclick="updateServer('${server.ip}')" title="Update to latest version">
                                     🔄 Update
@@ -396,6 +397,10 @@
                                 <div class="metric">
                                     <div class="metric-value">${server.requests_per_second || 0}</div>
                                     <div>Requests/sec</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value">${server.average_response_time_ms || 0}ms</div>
+                                    <div>Avg Response</div>
                                 </div>
                                 <div class="metric">
                                     <div class="metric-value">${server.failed_requests || 0}</div>
@@ -440,6 +445,7 @@
                             <div class="server-header">
                                 <div class="server-ip">🎵 ${server.ip} (${server.name})</div>
                                 <div class="server-status-badge ${statusClass}">${statusText}</div>
+                                <div style="font-size: 0.8rem; color: #666; margin-top: 2px;">📍 ${server.region || 'Unknown'}</div>
                                 <button class="detach-btn" onclick="detachInstance('${server.ip}')" title="Detach from Auto Scaling Group">
                                     🔗💥
                                 </button>
@@ -460,6 +466,18 @@
                                 <div class="metric">
                                     <div class="metric-value">${server.channels || 0}</div>
                                     <div>Channels</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value">${server.requests_per_second || 0}</div>
+                                    <div>Req/sec</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value">${server.average_response_time_ms || 0}ms</div>
+                                    <div>Avg Resp</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value">${server.failed_requests || 0}</div>
+                                    <div>Failed</div>
                                 </div>
                             </div>
                             ${server.error ? `<div style="color: #e53e3e; font-size: 0.85rem; margin-top: 8px;"><strong>Error:</strong> ${server.error}</div>` : ''}
@@ -801,7 +819,7 @@
                             <div class="server-card-header">
                                 <div class="server-card-title">${serverType} ${server.ip} (${server.name})</div>
                                 <div class="server-status-badge ${statusClass}">${statusText}</div>
-                                <div style="font-size: 0.8rem; color: #666;">${serverTypeName}</div>
+                                <div style="font-size: 0.8rem; color: #666;">${serverTypeName} • 📍 ${server.region || 'Unknown'}</div>
                                 <button class="detach-btn" onclick="detachInstance('${server.ip}')" title="Detach from Auto Scaling Group">
                                     🔗💥
                                 </button>
@@ -855,8 +873,16 @@
                                 <div class="label">Requests/sec</div>
                             </div>
                             <div class="system-metric">
+                                <div class="value">${server.average_response_time_ms || 0}ms</div>
+                                <div class="label">Avg Response Time</div>
+                            </div>
+                            <div class="system-metric">
                                 <div class="value">${server.failed_requests || 0}</div>
                                 <div class="label">Failed Reqs</div>
+                            </div>
+                            <div class="system-metric">
+                                <div class="value">${server.status || 'Unknown'}</div>
+                                <div class="label">Status</div>
                             </div>
                         </div>
                     `;
@@ -1116,8 +1142,9 @@
                 detailsHtml += `
                     <div class="detailed-server-card ${statusClass}">
                         <div class="server-card-header">
-                            <div class="server-card-title">🌐 ${serverIP}</div>
+                            <div class="server-card-title">🌐 ${serverIP} (${server.name || 'REST Server'})</div>
                             <div class="server-status-badge ${statusClass}">${statusText}</div>
+                            <div style="font-size: 0.8rem; color: #666; margin-top: 2px;">📍 ${server.region || 'Unknown'}</div>
                         </div>
                         
                         ${!hasError ? `
@@ -1139,6 +1166,22 @@
                                             <div class="progress-fill" style="width: ${parseFloat(memoryUsage)}%"></div>
                                         </div>
                                     ` : ''}
+                                </div>
+                                <div class="system-metric">
+                                    <div class="value">${server.requests_per_second || 0}</div>
+                                    <div class="label">Requests/sec</div>
+                                </div>
+                                <div class="system-metric">
+                                    <div class="value">${server.average_response_time_ms || 0}ms</div>
+                                    <div class="label">Avg Response</div>
+                                </div>
+                                <div class="system-metric">
+                                    <div class="value">${server.failed_requests || 0}</div>
+                                    <div class="label">Failed Reqs</div>
+                                </div>
+                                <div class="system-metric">
+                                    <div class="value">${server.status || 'Unknown'}</div>
+                                    <div class="label">Status</div>
                                 </div>
                             </div>
 
@@ -1225,6 +1268,7 @@
                             <div class="server-header">
                                 <div class="server-ip">🔴 ${master.name}</div>
                                 <div class="server-status-badge ${statusClass}">${statusText}</div>
+                                <div style="font-size: 0.8rem; color: #666; margin-top: 2px;">📍 ${master.region || 'Unknown'}</div>
                             </div>
                             <div class="server-metrics">
                                 <div class="metric">
@@ -1289,6 +1333,7 @@
                             <div class="server-header">
                                 <div class="server-ip">🔗 ${replica.name}</div>
                                 <div class="server-status-badge ${statusClass}">${statusText}</div>
+                                <div style="font-size: 0.8rem; color: #666; margin-top: 2px;">📍 ${replica.region || 'Unknown'}</div>
                             </div>
                             <div class="server-metrics">
                                 <div class="metric">
@@ -1496,6 +1541,7 @@
                         <div class="server-card-header">
                             <div class="server-card-title">🎵 ${server.ip} (${server.name})</div>
                             <div class="server-status-badge ${statusClass}">${statusText}</div>
+                            <div style="font-size: 0.8rem; color: #666; margin-top: 2px;">📍 ${server.region || 'Unknown'}</div>
                             <button class="detach-btn" onclick="detachInstance('${server.ip}')" title="Detach from Auto Scaling Group">
                                 🔗💥
                             </button>
@@ -1527,6 +1573,22 @@
                                         <div class="progress-fill" style="width: ${parseFloat(memoryUsage)}%"></div>
                                     </div>
                                 ` : ''}
+                            </div>
+                            <div class="system-metric">
+                                <div class="value">${server.requests_per_second || 0}</div>
+                                <div class="label">Requests/sec</div>
+                            </div>
+                            <div class="system-metric">
+                                <div class="value">${server.average_response_time_ms || 0}ms</div>
+                                <div class="label">Avg Response</div>
+                            </div>
+                            <div class="system-metric">
+                                <div class="value">${server.failed_requests || 0}</div>
+                                <div class="label">Failed Reqs</div>
+                            </div>
+                            <div class="system-metric">
+                                <div class="value">${server.status || 'Unknown'}</div>
+                                <div class="label">Status</div>
                             </div>
                         </div>
 
