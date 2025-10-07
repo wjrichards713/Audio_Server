@@ -6,7 +6,7 @@ const fs  = require("fs");
 function createSystemRoutes(redis, publisher, sentinelClient) {
   const router = express.Router();
 
-  const SERVER_STATUS_KEY = "Audio_server_Status";
+  const SERVER_STATUS_KEY = "Audio_Server_Status";
   const STREAMING_STATS_KEY = "Streaming_Server_Status";
   const SERVER_VERSIONS_KEY = "server_versions";
   const LATEST_VERSION_KEY = "version_details";
@@ -167,9 +167,9 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         updated_at: Date.now(),                  // epoch ms
       };
 
-      await redis.hset("Audio_server_Status", global.serverPublicIP, JSON.stringify(payload));
+      await redis.hset("Audio_Server_Status", global.serverPublicIP, JSON.stringify(payload));
     } catch (err) {
-      console.error("Failed to update Audio_server_Status:", err);
+      console.error("Failed to update Audio_Server_Status:", err);
     }
   }, 1000);
   
@@ -410,7 +410,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         })
       );
 
-      // Transform audio server data from Audio_server_Status
+      // Transform audio server data from Audio_Server_Status
       const audioServers = Object.entries(rawStatuses || {}).map(([ip, json]) => {
         try {
           const data = JSON.parse(json);
@@ -714,11 +714,11 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         return res.status(400).json({ error: `${LATEST_VERSION_KEY} must contain 'version' and 'zipFile'` });
       }
 
-      // 2) Get current servers (fields of Audio_server_Status hash)
+      // 2) Get current servers (fields of Audio_Server_Status hash)
       const rawStatuses = await redis.hgetall(SERVER_STATUS_KEY);
       const ips = Object.keys(rawStatuses || {});
       if (ips.length === 0) {
-        return res.status(200).json({ message: "No servers found in Audio_server_Status; nothing to initialize", initialized: 0 });
+        return res.status(200).json({ message: "No servers found in Audio_Server_Status; nothing to initialize", initialized: 0 });
       }
 
       const now = Date.now();
@@ -737,7 +737,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         };
         multi.hset(SERVER_VERSIONS_KEY, ip, JSON.stringify(versionPayload));
 
-        // 2b) Merge into Audio_server_Status JSON for that IP
+        // 2b) Merge into Audio_Server_Status JSON for that IP
         const raw = rawStatuses[ip];
         let statusObj;
         try {
