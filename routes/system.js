@@ -78,8 +78,6 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       path: "/latest/meta-data/tags/instance/Name",
       headers: { "X-aws-ec2-metadata-token": token },
     });
-
-    console.log("name: ", name);
     
     // Normalize empty/absent to undefined
     if (name != null) name = name.trim() || undefined;    
