@@ -149,7 +149,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   setInterval(async () => {
     try {
       const { region, name } = await getRegionInstanceAndName();
-      print(name, region)
+      console.log(name, region)
 
       const payload = {
         ip: global.serverPublicIP,
