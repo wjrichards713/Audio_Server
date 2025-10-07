@@ -78,6 +78,9 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       path: "/latest/meta-data/tags/instance/Name",
       headers: { "X-aws-ec2-metadata-token": token },
     });
+
+    console.log("name: ", name);
+    
     // Normalize empty/absent to undefined
     if (name != null) name = name.trim() || undefined;    
 
@@ -149,7 +152,6 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   setInterval(async () => {
     try {
       const { region, name } = await getRegionInstanceAndName();
-      console.log(name, region)
 
       const payload = {
         ip: global.serverPublicIP,
