@@ -206,7 +206,7 @@
                 refreshBtn.classList.add('loading');
                 errorMessage.style.display = 'none';
 
-                const usersResponse = await fetch('/audio-server-connected-users-updated');
+                const usersResponse = await fetch('/audio-server-connected-users');
 
                 if (!usersResponse.ok) {
                     throw new Error(`HTTP ${usersResponse.status}: ${usersResponse.statusText}`);

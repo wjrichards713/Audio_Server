@@ -149,6 +149,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   setInterval(async () => {
     try {
       const { region, name } = await getRegionInstanceAndName();
+      print(name, region)
 
       const payload = {
         ip: global.serverPublicIP,
@@ -174,7 +175,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   }, 1000);
   
   // Audio server connected users endpoint (original format)
-  router.get("/audio-server-connected-users", async (req, res) => {
+  router.get("/audio-server-connected-users-old", async (req, res) => {
     try {
       // Fetch everything we need in parallel (added REST server status)
       const [
@@ -352,7 +353,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
     }
   });
 
-  router.get("/audio-server-connected-users-updated", async (req, res) => {
+  router.get("/audio-server-connected-users", async (req, res) => {
     try {
       // Fetch everything we need in parallel
       const [
@@ -824,11 +825,11 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   
   // Dashboard route
   router.get('/dashboard', (req, res) => {
-    res.sendFile('dashboard.html', { root: '.' });
+    res.sendFile('newdashboard.html', { root: '.' });
   });
 
-  router.get('/newdashboard', (req, res) => {
-    res.sendFile('newdashboard.html', { root: '.' });
+  router.get('/olddashboard', (req, res) => {
+    res.sendFile('dashboard.html', { root: '.' });
   });
   
   
