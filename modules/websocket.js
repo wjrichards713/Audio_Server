@@ -182,27 +182,126 @@ const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 // --- placeholders for your real update/rollback scripts ---
 // replace your current performLocalUpdate with this:
 async function performLocalUpdate({ version, zipFile, waitMs }) {
-  const ms = Number.isFinite(waitMs)
-    ? waitMs
-    : parseInt(process.env.DUMMY_UPDATE_WAIT_MS || "60000", 10); // default 60s
+  // ---- config & paths ----
+  const APP_NAME = process.env.APP_NAME || "server";
+  const DEPLOY_BASE = process.env.DEPLOY_BASE || `/var/www/${APP_NAME}`;
+  const PM2_NAME = process.env.PM2_NAME || APP_NAME;
+  const START_FILE = process.env.START_FILE || "server.js";
+  const NPM_BIN = process.env.NPM_BIN || "npm";
+  const REGION = process.env.AWS_REGION || "ap-south-1";
 
-  console.log(`Update (noop) for version=${version} zipFile=${zipFile} — waiting ${ms}ms...`);
+  const BASE = DEPLOY_BASE;
+  const RELEASES = path.join(BASE, "releases");
+  const SHARED = path.join(BASE, "shared");
+  const CURRENT = path.join(BASE, "current");
 
-  // optional: log a heartbeat every 5s while waiting
-  const step = 5000;
-  let remaining = ms;
-  while (remaining > 0) {
-    await sleep(Math.min(step, remaining));
-    remaining -= step;
-    const left = Math.max(0, Math.ceil(remaining / 1000));
-    if (left % 5 === 0 || remaining <= 0) {
-      console.log(`...update wait: ~${left}s remaining`);
-    }
+  fs.mkdirSync(RELEASES, { recursive: true });
+  fs.mkdirSync(SHARED, { recursive: true });
+
+  // ---- resolve S3 bucket & key ----
+  let bucket = process.env.S3_BUCKET;
+  let key = zipFile;
+  if (zipFile.startsWith("s3://")) {
+    const m = zipFile.match(/^s3:\/\/([^/]+)\/(.+)$/);
+    if (!m) throw new Error(`Bad S3 URL: ${zipFile}`);
+    bucket = m[1];
+    key = m[2];
+  }
+  if (!bucket) throw new Error("S3 bucket missing. Set S3_BUCKET or pass s3://bucket/key");
+
+  // ---- S3 client (env/provider chain) ----
+  const s3 = new S3Client({ region: REGION });
+
+  // ---- download to tmp ----
+  const tmpZip = path.join(os.tmpdir(), `${APP_NAME}-${Date.now()}.zip`);
+  console.log(`Downloading s3://${bucket}/${key} → ${tmpZip}`);
+  const obj = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  await pipeline(obj.Body, fs.createWriteStream(tmpZip));
+
+  // ---- prepare new release dir ----
+  const stamp = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15);
+  const releaseName = `${APP_NAME}-v${version || "unknown"}-${stamp}`;
+  const TARGET = path.join(RELEASES, releaseName);
+  fs.mkdirSync(TARGET, { recursive: true });
+
+  // ---- unzip ----
+  console.log(`Unzipping into ${TARGET}`);
+  await pipeline(fs.createReadStream(tmpZip), unzipper.Extract({ path: TARGET }));
+  fs.rmSync(tmpZip, { force: true });
+
+  // ---- link shared .env (if present) ----
+  const sharedEnv = path.join(SHARED, ".env");
+  const targetEnv = path.join(TARGET, ".env");
+  if (fs.existsSync(sharedEnv) && !fs.existsSync(targetEnv)) {
+    fs.symlinkSync(sharedEnv, targetEnv);
   }
 
-  // if you later add real commands, do them here:
-  // await exec(`/usr/local/bin/update-app.sh ${version} ${zipFile}`);
-  // await exec(`/usr/local/bin/health-check.sh`);
+  // ---- install production deps ----
+  await run(`${NPM_BIN}`, ["ci", "--omit=dev"], { cwd: TARGET });
+
+  // ---- optional: run migrations / build if your zip lacks dist ----
+  // await run(`${NPM_BIN}`, ["run", "migrate", "--if-present"], { cwd: TARGET });
+
+  // ---- atomically switch "current" symlink ----
+  // Use a temp symlink swap to be extra-safe on some filesystems
+  const tempLink = path.join(BASE, `.current-${stamp}`);
+  try {
+    try { fs.unlinkSync(tempLink); } catch {}
+    fs.symlinkSync(TARGET, tempLink);
+    try { fs.renameSync(tempLink, CURRENT); } // atomic on same fs
+    catch {
+      // fallback: replace
+      try { fs.unlinkSync(CURRENT); } catch {}
+      fs.renameSync(tempLink, CURRENT);
+    }
+  } finally {
+    try { fs.unlinkSync(tempLink); } catch {}
+  }
+
+  // ---- PM2 reload or start ----
+  const startPath = path.join(CURRENT, START_FILE);
+  if (!fs.existsSync(startPath)) {
+    console.warn(`⚠ START_FILE not found at ${startPath}. Adjust START_FILE or zip contents.`);
+  }
+
+  const pm2Exists = await pm2ProcessExists(PM2_NAME);
+  if (pm2Exists) {
+    await run("pm2", ["reload", PM2_NAME, "--update-env"]);
+  } else {
+    await run("pm2", ["start", startPath, "--name", PM2_NAME]);
+  }
+
+  console.log(`✅ Deployed ${APP_NAME} → ${TARGET}`);
+  if (Number.isFinite(waitMs) || process.env.DUMMY_UPDATE_WAIT_MS) {
+    // keep your old wait logic if you still want it
+    const ms = Number.isFinite(waitMs)
+      ? waitMs
+      : parseInt(process.env.DUMMY_UPDATE_WAIT_MS || "0", 10);
+    if (ms > 0) {
+      console.log(`(post-update wait) sleeping ${ms}ms`);
+      await sleep(ms);
+    }
+  }
+}
+
+function run(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args, { stdio: "inherit", ...opts });
+    p.on("error", reject);
+    p.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${cmd} ${args.join(" ")} exited with ${code}`));
+    });
+  });
+}
+
+async function pm2ProcessExists(name) {
+  try {
+    await run("pm2", ["describe", name], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 

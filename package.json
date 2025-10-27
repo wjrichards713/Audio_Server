@@ -1,10 +1,11 @@
 {
   "name": "server",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "version-push": "node ./scripts/version-push.mjs"
   },
   "author": "",
   "license": "ISC",
@@ -16,7 +17,6 @@
     "axios": "^1.7.9",
     "cors": "^2.8.5",
     "dgram": "^1.0.1",
-    "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "ioredis": "^5.6.0",
     "nodemon": "^3.1.10",
@@ -32,5 +32,13 @@
     "url": "https://github.com/meoknu/audio_server.redenes/issues"
   },
   "homepage": "https://github.com/meoknu/audio_server.redenes#readme",
-  "description": ""
+  "description": "",
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.917.0",
+    "archiver": "^7.0.1",
+    "dotenv": "^17.2.3",
+    "extract-zip": "^2.0.1",
+    "semver": "^7.7.3",
+    "unzipper": "^0.12.3"
+  }
 }
