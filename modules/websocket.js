@@ -316,7 +316,7 @@ async function updateAndReattachWithRollback({ redis }) {
   const ip = global.serverPublicIP;
 
   // 1) Stop new LB traffic; no replacement (desired -1)
-  const { AutoScalingGroupName } = await enterStandbyNoReplacement({ region, instanceId });
+  // const { AutoScalingGroupName } = await enterStandbyNoReplacement({ region, instanceId });
 
   const latest   = await getLatestFromRedis(redis);
   const previous = await getPreviousServerVersion(redis, ip);
@@ -326,7 +326,7 @@ async function updateAndReattachWithRollback({ redis }) {
     await performLocalUpdate({ version: latest.version, zipFile: latest.zipFile });
 
     // 3) Rejoin: restore desired (+1) & exit standby
-    await exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroupName: AutoScalingGroupName });
+    // await exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroupName: AutoScalingGroupName });
 
     // 4) Bookkeeping (this server now runs latest)
     await writeServerVersionToRedis(redis, ip, {
@@ -349,7 +349,7 @@ async function updateAndReattachWithRollback({ redis }) {
       await performRollbackToPrevious({ version: previous.version, zipFile: previous.zipFile });
 
       // Rejoin capacity & exit standby
-      await exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroupName: AutoScalingGroupName });
+      // await exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroupName: AutoScalingGroupName });
 
       // Ensure Redis shows the old version as current
       await writeServerVersionToRedis(redis, ip, {
