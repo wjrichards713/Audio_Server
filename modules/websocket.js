@@ -23,6 +23,7 @@ const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 
 // Other libs
 const unzipper = require("unzipper");
+const os = require("node:os");
 
 // Redis keys (must match system.js)
 const SERVER_STATUS_KEY   = "server_status";
