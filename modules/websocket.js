@@ -182,6 +182,8 @@ const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 // --- placeholders for your real update/rollback scripts ---
 // replace your current performLocalUpdate with this:
 async function performLocalUpdate({ version, zipFile, waitMs }) {
+  console.log(version, zipFile, waitMs);
+  
   // ---- config & paths ----
   const APP_NAME = process.env.APP_NAME || "server";
   const DEPLOY_BASE = process.env.DEPLOY_BASE || `/var/www/${APP_NAME}`;
@@ -323,7 +325,7 @@ async function updateAndReattachWithRollback({ redis }) {
 
   try {
     // 2) Try update
-    await performLocalUpdate({ version: latest.version, zipFile: latest.zipFile });
+    await performLocalUpdate({ version: "1.0.3", zipFile: "s3://audio-redenes/apps/server/latest.zip" });
 
     // 3) Rejoin: restore desired (+1) & exit standby
     // await exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroupName: AutoScalingGroupName });
