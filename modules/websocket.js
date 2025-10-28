@@ -383,7 +383,7 @@ async function updateAndReattachWithRollback({ redis }) {
     // 2) Try update
     console.log("update start");
 
-    await performLocalUpdate({ version: "1.0.3", zipFile: "s3://audio-redenes/apps/server/latest.zip" });
+    await performLocalUpdate({ version: "1.0.3", zipFile: "s3://audio-redenes/apps/Audio_Server/latest.zip" });
 
     console.log("update done");
     // 3) Rejoin: restore desired (+1) & exit standby
