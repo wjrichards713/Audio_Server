@@ -198,12 +198,12 @@ async function performLocalUpdate({ version, zipFile, waitMs }) {
 
     // ---- config & paths ----
     ctx.step = "config";
-    const APP_NAME = process.env.APP_NAME || "server";
+    const APP_NAME = process.env.APP_NAME || "Audio_Server";
     const DEPLOY_BASE = process.env.DEPLOY_BASE || `/var/www/${APP_NAME}`;
     const PM2_NAME = process.env.PM2_NAME || APP_NAME;
     const START_FILE = process.env.START_FILE || "server.js";
     const NPM_BIN = process.env.NPM_BIN || "npm";
-    const REGION = process.env.AWS_REGION || "ap-south-1";
+    const REGION = process.env.AWS_REGION || "us-west-2";
 
     const BASE = DEPLOY_BASE;
     const RELEASES = path.join(BASE, "releases");
