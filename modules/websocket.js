@@ -13,11 +13,15 @@ const {
 const path = require("node:path");
 const http = require("http");
 const { execFile } = require("node:child_process");
+// Built-ins
 const fs = require("node:fs");
-const pipeline = require("node:stream/promises");
-const spawn = require("node:child_process");
-const S3Client = require("@aws-sdk/client-s3");
-const GetObjectCommand = require("@aws-sdk/client-s3");
+const { pipeline } = require("node:stream/promises");
+const { spawn } = require("node:child_process");
+
+// AWS SDK v3 (S3)
+const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
+
+// Other libs
 const unzipper = require("unzipper");
 
 // Redis keys (must match system.js)
