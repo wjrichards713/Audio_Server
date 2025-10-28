@@ -181,154 +181,108 @@ const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
 // --- placeholders for your real update/rollback scripts ---
 // replace your current performLocalUpdate with this:
-export async function performLocalUpdate({ version, zipFile, waitMs }) {
-  const ctx = { tmpZip: null, TARGET: null, CURRENT: null, BASE: null, step: "init" };
+async function performLocalUpdate({ version, zipFile, waitMs }) {
+  console.log(version, zipFile, waitMs);
+  
+  // ---- config & paths ----
+  const APP_NAME = process.env.APP_NAME || "server";
+  const DEPLOY_BASE = process.env.DEPLOY_BASE || `/var/www/${APP_NAME}`;
+  const PM2_NAME = process.env.PM2_NAME || APP_NAME;
+  const START_FILE = process.env.START_FILE || "server.js";
+  const NPM_BIN = process.env.NPM_BIN || "npm";
+  const REGION = process.env.AWS_REGION || "ap-south-1";
 
-  const log = (...args) => console.log("[deploy]", ...args);
-  const fail = (step, err) => {
-    const msg = (err && err.message) ? err.message : String(err);
-    console.error(`[deploy] ❌ Failed at step: ${step}`);
-    console.error(`[deploy] ${msg}`);
-    if (err && err.stack) console.error(err.stack);
-    return { ok: false, step, message: msg };
-  };
+  const BASE = DEPLOY_BASE;
+  const RELEASES = path.join(BASE, "releases");
+  const SHARED = path.join(BASE, "shared");
+  const CURRENT = path.join(BASE, "current");
 
+  fs.mkdirSync(RELEASES, { recursive: true });
+  fs.mkdirSync(SHARED, { recursive: true });
+
+  // ---- resolve S3 bucket & key ----
+  let bucket = process.env.S3_BUCKET;
+  let key = zipFile;
+  if (zipFile.startsWith("s3://")) {
+    const m = zipFile.match(/^s3:\/\/([^/]+)\/(.+)$/);
+    if (!m) throw new Error(`Bad S3 URL: ${zipFile}`);
+    bucket = m[1];
+    key = m[2];
+  }
+  if (!bucket) throw new Error("S3 bucket missing. Set S3_BUCKET or pass s3://bucket/key");
+
+  // ---- S3 client (env/provider chain) ----
+  const s3 = new S3Client({ region: REGION });
+
+  // ---- download to tmp ----
+  const tmpZip = path.join(os.tmpdir(), `${APP_NAME}-${Date.now()}.zip`);
+  console.log(`Downloading s3://${bucket}/${key} → ${tmpZip}`);
+  const obj = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  await pipeline(obj.Body, fs.createWriteStream(tmpZip));
+
+  // ---- prepare new release dir ----
+  const stamp = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15);
+  const releaseName = `${APP_NAME}-v${version || "unknown"}-${stamp}`;
+  const TARGET = path.join(RELEASES, releaseName);
+  fs.mkdirSync(TARGET, { recursive: true });
+
+  // ---- unzip ----
+  console.log(`Unzipping into ${TARGET}`);
+  await pipeline(fs.createReadStream(tmpZip), unzipper.Extract({ path: TARGET }));
+  fs.rmSync(tmpZip, { force: true });
+
+  // ---- link shared .env (if present) ----
+  const sharedEnv = path.join(SHARED, ".env");
+  const targetEnv = path.join(TARGET, ".env");
+  if (fs.existsSync(sharedEnv) && !fs.existsSync(targetEnv)) {
+    fs.symlinkSync(sharedEnv, targetEnv);
+  }
+
+  // ---- install production deps ----
+  await run(`${NPM_BIN}`, ["ci", "--omit=dev"], { cwd: TARGET });
+
+  // ---- optional: run migrations / build if your zip lacks dist ----
+  // await run(`${NPM_BIN}`, ["run", "migrate", "--if-present"], { cwd: TARGET });
+
+  // ---- atomically switch "current" symlink ----
+  // Use a temp symlink swap to be extra-safe on some filesystems
+  const tempLink = path.join(BASE, `.current-${stamp}`);
   try {
-    log("params:", { version, zipFile, waitMs });
-
-    // ---- config & paths ----
-    ctx.step = "config";
-    const APP_NAME = process.env.APP_NAME || "server";
-    const DEPLOY_BASE = process.env.DEPLOY_BASE || `/var/www/${APP_NAME}`;
-    const PM2_NAME = process.env.PM2_NAME || APP_NAME;
-    const START_FILE = process.env.START_FILE || "server.js";
-    const NPM_BIN = process.env.NPM_BIN || "npm";
-    const REGION = process.env.AWS_REGION || "ap-south-1";
-
-    const BASE = DEPLOY_BASE;
-    const RELEASES = path.join(BASE, "releases");
-    const SHARED = path.join(BASE, "shared");
-    const CURRENT = path.join(BASE, "current");
-    ctx.BASE = BASE; ctx.CURRENT = CURRENT;
-
-    fs.mkdirSync(RELEASES, { recursive: true });
-    fs.mkdirSync(SHARED, { recursive: true });
-
-    // ---- resolve S3 bucket & key ----
-    ctx.step = "resolve-s3";
-    let bucket = process.env.S3_BUCKET;
-    let key = zipFile;
-    if (!zipFile) throw new Error("zipFile not provided");
-    if (zipFile.startsWith("s3://")) {
-      const m = zipFile.match(/^s3:\/\/([^/]+)\/(.+)$/);
-      if (!m) throw new Error(`Bad S3 URL: ${zipFile}`);
-      bucket = m[1];
-      key = m[2];
+    try { fs.unlinkSync(tempLink); } catch {}
+    fs.symlinkSync(TARGET, tempLink);
+    try { fs.renameSync(tempLink, CURRENT); } // atomic on same fs
+    catch {
+      // fallback: replace
+      try { fs.unlinkSync(CURRENT); } catch {}
+      fs.renameSync(tempLink, CURRENT);
     }
-    if (!bucket) throw new Error("S3 bucket missing. Set S3_BUCKET or pass s3://bucket/key");
-    log(`S3 target: s3://${bucket}/${key}  (region=${REGION})`);
+  } finally {
+    try { fs.unlinkSync(tempLink); } catch {}
+  }
 
-    // ---- S3 client (env/provider chain) ----
-    ctx.step = "s3-client";
-    const s3 = new S3Client({ region: REGION });
+  // ---- PM2 reload or start ----
+  const startPath = path.join(CURRENT, START_FILE);
+  if (!fs.existsSync(startPath)) {
+    console.warn(`⚠ START_FILE not found at ${startPath}. Adjust START_FILE or zip contents.`);
+  }
 
-    // ---- download to tmp ----
-    ctx.step = "download";
-    const tmpZip = path.join(os.tmpdir(), `${APP_NAME}-${Date.now()}.zip`);
-    ctx.tmpZip = tmpZip;
-    log(`Downloading → ${tmpZip}`);
-    let obj;
-    try {
-      obj = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-    } catch (e) {
-      throw new Error(`S3 GetObject failed for s3://${bucket}/${key}: ${e.message}`);
+  const pm2Exists = await pm2ProcessExists(PM2_NAME);
+  if (pm2Exists) {
+    await run("pm2", ["reload", PM2_NAME, "--update-env"]);
+  } else {
+    await run("pm2", ["start", startPath, "--name", PM2_NAME]);
+  }
+
+  console.log(`✅ Deployed ${APP_NAME} → ${TARGET}`);
+  if (Number.isFinite(waitMs) || process.env.DUMMY_UPDATE_WAIT_MS) {
+    // keep your old wait logic if you still want it
+    const ms = Number.isFinite(waitMs)
+      ? waitMs
+      : parseInt(process.env.DUMMY_UPDATE_WAIT_MS || "0", 10);
+    if (ms > 0) {
+      console.log(`(post-update wait) sleeping ${ms}ms`);
+      await sleep(ms);
     }
-    await pipeline(obj.Body, fs.createWriteStream(tmpZip));
-
-    // ---- prepare new release dir ----
-    ctx.step = "prepare-release";
-    const stamp = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15);
-    const releaseName = `${APP_NAME}-v${version || "unknown"}-${stamp}`;
-    const TARGET = path.join(RELEASES, releaseName);
-    ctx.TARGET = TARGET;
-    fs.mkdirSync(TARGET, { recursive: true });
-
-    // ---- unzip ----
-    ctx.step = "unzip";
-    log(`Unzipping into ${TARGET}`);
-    try {
-      await pipeline(fs.createReadStream(tmpZip), unzipper.Extract({ path: TARGET }));
-    } catch (e) {
-      throw new Error(`Unzip failed: ${e.message}`);
-    } finally {
-      try { fs.rmSync(tmpZip, { force: true }); } catch {}
-    }
-
-    // ---- link shared .env (if present) ----
-    ctx.step = "link-env";
-    const sharedEnv = path.join(SHARED, ".env");
-    const targetEnv = path.join(TARGET, ".env");
-    if (fs.existsSync(sharedEnv) && !fs.existsSync(targetEnv)) {
-      try { fs.symlinkSync(sharedEnv, targetEnv); }
-      catch (e) { throw new Error(`Linking .env failed: ${e.message}`); }
-    }
-
-    // ---- install production deps ----
-    ctx.step = "npm-ci";
-    log("Installing production deps…");
-    try {
-      await run(`${NPM_BIN}`, ["ci", "--omit=dev"], { cwd: TARGET });
-    } catch (e) {
-      throw new Error(`npm ci failed in ${TARGET}: ${e.message}`);
-    }
-
-    // ---- atomically switch "current" symlink ----
-    ctx.step = "switch-symlink";
-    const tempLink = path.join(BASE, `.current-${stamp}`);
-    try {
-      try { fs.unlinkSync(tempLink); } catch {}
-      fs.symlinkSync(TARGET, tempLink);
-      try {
-        fs.renameSync(tempLink, CURRENT); // atomic (same fs)
-      } catch {
-        try { fs.unlinkSync(CURRENT); } catch {}
-        fs.renameSync(tempLink, CURRENT);
-      }
-    } catch (e) {
-      throw new Error(`Switching 'current' symlink failed: ${e.message}`);
-    } finally {
-      try { fs.unlinkSync(tempLink); } catch {}
-    }
-
-    // ---- PM2 reload or start ----
-    ctx.step = "pm2";
-    const startPath = path.join(CURRENT, START_FILE);
-    if (!fs.existsSync(startPath)) {
-      log(`⚠ START_FILE not found at ${startPath}. Continuing, but PM2 start may fail.`);
-    }
-
-    const pm2Exists = await pm2ProcessExists(PM2_NAME).catch(() => false);
-    try {
-      if (pm2Exists) {
-        await run("pm2", ["reload", PM2_NAME, "--update-env"]);
-      } else {
-        await run("pm2", ["start", startPath, "--name", PM2_NAME]);
-      }
-    } catch (e) {
-      throw new Error(`PM2 operation failed: ${e.message}`);
-    }
-
-    // optional post-wait
-    if (Number.isFinite(waitMs) || process.env.DUMMY_UPDATE_WAIT_MS) {
-      const ms = Number.isFinite(waitMs) ? waitMs : parseInt(process.env.DUMMY_UPDATE_WAIT_MS || "0", 10);
-      if (ms > 0) { ctx.step = "post-wait"; log(`Sleeping ${ms}ms…`); await sleep(ms); }
-    }
-
-    log(`✅ Deployed ${APP_NAME} → ${TARGET}`);
-    return { ok: true, message: `Deployed to ${TARGET}`, step: "done" };
-
-  } catch (err) {
-    return fail(ctx.step, err);
   }
 }
 
