@@ -10,7 +10,7 @@ const {
   ExitStandbyCommand,
   DetachInstancesCommand
 } = require("@aws-sdk/client-auto-scaling");
-
+const path = require("node:path");
 const http = require("http");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
