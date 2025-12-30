@@ -151,12 +151,22 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   // push every second
   setInterval(async () => {
     try {
-      const { region, name } = await getRegionInstanceAndName();
+      // IMDS (EC2 metadata) can be unavailable or slow; tolerate failures and continue
+      let region = 'unknown';
+      let name = undefined;
+      try {
+        const imds = await getRegionInstanceAndName();
+        if (imds && imds.region) region = imds.region;
+        if (imds && imds.name) name = imds.name;
+      } catch (imdsErr) {
+        // soft-fail: log a short warning but don't abort the whole update
+        console.warn("IMDS metadata unavailable, using fallback values:", imdsErr && imdsErr.message ? imdsErr.message : imdsErr);
+      }
 
       const payload = {
         ip: global.serverPublicIP,
         name: name,                 // "Server AF"
-        region,                                  // e.g. "us-east-1"
+        region,                                  // e.g. "us-east-1" or 'unknown'
         status: "online",             // "online"
         requests_per_second: global.requestsPerSecond || 0,
         average_response_time_ms: global.avgResponseTime || 0,
