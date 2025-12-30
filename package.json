@@ -1,6 +1,6 @@
 {
-  "name": "server",
-  "version": "1.0.12",
+  "name": "audio_server",
+  "version": "1.0.23",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

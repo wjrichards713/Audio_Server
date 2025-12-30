@@ -361,7 +361,7 @@
                     let versionInfo = '';
                     if (server.version || server.is_outdated !== null) {
                         const versionClass = server.is_outdated ? 'outdated' : 'current';
-                        const versionText = server.version?.current || 'Unknown';
+                        const versionText = server.version || 'Unknown';
                         
                         versionInfo = `
                             <div class="version-info ${versionClass}" title="Version: ${versionText}">
@@ -793,7 +793,7 @@
                     let versionSection = '';
                     if (server.version || server.is_outdated !== null) {
                         const versionClass = server.is_outdated ? 'outdated' : 'current';
-                        const currentVer = server.version?.current || 'Unknown';
+                        const currentVer = server.version || 'Unknown';
                         
                         versionSection = `
                             <div class="version-section ${versionClass}">
@@ -891,20 +891,37 @@
                     const serverChannels = Array.isArray(channels) ? channels.filter(channel => 
                         (channel.servers || []).some(s => s.ip === server.ip)
                     ) : [];
+                    // Only count channels that have at least one connection on this server
+                    const serverChannelsWithConnections = serverChannels.filter(channel => {
+                        const connections = channel.connections || [];
+                        // If any connection explicitly references this server, include it
+                        if (connections.some(c => c.server_ip === server.ip)) return true;
+                        // Otherwise, if there are connections and this server is listed in channel.servers,
+                        // assume those connections belong to this server (fallback for older payloads)
+                        if (connections.length > 0 && (channel.servers || []).some(s => s.ip === server.ip)) return true;
+                        return false;
+                    });
                     
-                    if (serverChannels.length > 0) {
+                    if (serverChannelsWithConnections.length > 0) {
                         cardsHtml += `
                             <div style="margin-top: 16px;">
-                                <h4 style="color: #4a5568; margin-bottom: 8px; font-size: 0.9rem;">📢 Connected Channels (${serverChannels.length})</h4>
+                                <h4 style="color: #4a5568; margin-bottom: 8px; font-size: 0.9rem;">📢 Connected Channels (${serverChannelsWithConnections.length})</h4>
                         `;
 
-                        serverChannels.forEach(channel => {
-                            const userCount = (channel.connections || []).length;
+                        serverChannelsWithConnections.forEach(channel => {
+                            const allConnections = channel.connections || [];
+                            let connectionsForServer = allConnections.filter(c => c.server_ip === server.ip);
+                            // Fallback: if no connections explicitly tag server_ip, but channel.servers includes this server
+                            // and there are connections, assume those connections belong to this server (legacy payloads)
+                            if (connectionsForServer.length === 0 && allConnections.length > 0 && (channel.servers || []).some(s => s.ip === server.ip)) {
+                                connectionsForServer = allConnections;
+                            }
+                            const userCount = connectionsForServer.length;
                             cardsHtml += `
                                 <div style="margin-bottom: 8px; padding: 8px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #4299e1;">
                                     <div style="font-weight: 600; margin-bottom: 4px;">Channel ${channel.channel_id} (${userCount} users)</div>
                                     <div style="font-size: 0.8rem; color: #666;">
-                                        ${(channel.connections || []).map(user => 
+                                        ${connectionsForServer.map(user => 
                                             `<span style="display: inline-block; background: #bee3f8; color: #2c5282; padding: 2px 6px; margin: 2px; border-radius: 4px; font-size: 0.7rem;">${user.user_name || 'User'}</span>`
                                         ).join('')}
                                     </div>

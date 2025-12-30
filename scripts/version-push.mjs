@@ -11,11 +11,12 @@ import { spawnSync } from "node:child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const LATEST_VERSIONS_KEY = "latest_versions";
 
 // ---------- config via env ----------
-const BUCKET = process.env.S3_BUCKET || "audio-redenes";
+const BUCKET = process.env.S3_BUCKET;
 const REGION = process.env.AWS_REGION || "us-west-2";
-const APP_NAME = (process.env.APP_NAME || getPkgName()).replace(/[^A-Za-z0-9_\-\.]/g,"_");
+const APP_NAME = "audio_server";
 const BUMP = process.argv[2] || process.env.BUMP || "patch"; // patch | minor | major | exact x.y.z
 
 if (!BUCKET) {
@@ -86,8 +87,8 @@ async function putS3(key, body, contentType) {
  const s3 = new S3Client({
    region: REGION,
    credentials: {
-     accessKeyId: AWS_ACCESS_KEY_ID,
-     secretAccessKey: AWS_SECRET_ACCESS_KEY,
+     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
      sessionToken: AWS_SESSION_TOKEN || undefined,
    },
  });
@@ -159,6 +160,64 @@ const zipPath = path.join(buildDir, artifactName);
 
   console.log(`Uploading latest.json: s3://${BUCKET}/${keyLatestJson}`);
   await putS3(keyLatestJson, latestJson, "application/json");
+  // Persist latest version info to Redis (lightweight, no subscriptions)
+  try {
+    const IORedis = (await import('ioredis')).default;
+
+    function parseSentinels(list) {
+      return list.split(',').map(s => {
+        const [host, portStr] = s.trim().split(':');
+        return { host, port: Number(portStr || 26379) };
+      });
+    }
+
+    let redis;
+    if (process.env.REDIS_SENTINELS) {
+      const sentinels = parseSentinels(process.env.REDIS_SENTINELS);
+      const name = process.env.REDIS_MASTER_NAME || 'mymaster';
+      redis = new IORedis({
+        sentinels,
+        name,
+        username: process.env.REDIS_USER || undefined,
+        password: process.env.REDIS_PASS || undefined,
+        sentinelUsername: process.env.SENTINEL_USER || undefined,
+        sentinelPassword: process.env.SENTINEL_PASS || undefined,
+        lazyConnect: false,
+        connectTimeout: 5000
+      });
+    } else if (process.env.REDIS_URL) {
+      redis = new IORedis(process.env.REDIS_URL);
+    } else if (process.env.REDIS_HOST) {
+      redis = new IORedis({
+        host: process.env.REDIS_HOST,
+        port: Number(process.env.REDIS_PORT || 6379),
+        username: process.env.REDIS_USER || undefined,
+        password: process.env.REDIS_PASS || undefined,
+        lazyConnect: false,
+        connectTimeout: 5000
+      });
+    }
+
+    if (!redis) {
+      console.log('[redis] no redis config found; skipping update');
+    } else {
+      redis.on('error', (e) => console.warn('[redis] error:', e && e.message ? e.message : e));
+
+      const s3Url = `s3://${BUCKET}/${keyLatest}`;
+      const payload = {
+        version,
+        zipFile: s3Url,
+        metadata: null,
+        updatedAt: Date.now()
+      };
+
+      await redis.hset(LATEST_VERSIONS_KEY, APP_NAME, JSON.stringify(payload));
+      try { await redis.quit(); } catch (e) { /* ignore */ }
+      console.log(`[redis] updated ${LATEST_VERSIONS_KEY} ${APP_NAME}`);
+    }
+  } catch (err) {
+    console.warn('[redis] skipping update:', err && err.message ? err.message : err);
+  }
 
   console.log("\n✅ Done.");
   console.log(`Version: ${version}`);

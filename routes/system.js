@@ -10,6 +10,8 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
   const STREAMING_STATS_KEY = "Streaming_Server_Status";
   const SERVER_VERSIONS_KEY = "server_versions";
   const LATEST_VERSION_KEY = "version_details";
+  const LATEST_VERSIONS_KEY = "latest_versions"
+  const REDIS_APP_NAME = 'audio_server';
 
   // Add this constant near your other keys
   const REST_SERVER_STATUS_KEY = "REST_Server_Status";
@@ -366,7 +368,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
         redis.hgetall(SERVER_STATUS_KEY),
         redis.hgetall(STREAMING_STATS_KEY),
         redis.hgetall(SERVER_VERSIONS_KEY),
-        redis.get(LATEST_VERSION_KEY),
+        redis.hget(LATEST_VERSIONS_KEY, REDIS_APP_NAME),
         redis.hgetall(REST_SERVER_STATUS_KEY),
       ]);
 
@@ -396,7 +398,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
           const j = JSON.parse(rawLatest);
           if (j && j.version && j.zipFile) latestVersion = j;
         } catch (e) {
-          console.error("Invalid JSON in version_details:", e);
+          console.error("Invalid JSON in latest_versions field for", REDIS_APP_NAME, e);
         }
       }
 
@@ -437,7 +439,7 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
             memory: data.memory || {},
             uptime: data.uptime || "0 seconds",
             updated_at: data.updated_at,
-            version: embeddedVersion,
+            version: currentVersion,
             is_outdated: isOutdated
           };
         } catch {
@@ -627,6 +629,15 @@ function createSystemRoutes(redis, publisher, sentinelClient) {
       }
 
       const response = {
+        video_server: {
+          servers: [],
+        },
+        web_server: {
+          servers: [],
+        },
+        conference: {
+          servers: [],
+        },
         audio_server: {
           servers: audioServers
         },

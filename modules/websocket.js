@@ -28,7 +28,8 @@ const os = require("node:os");
 // Redis keys (must match system.js)
 const SERVER_STATUS_KEY   = "server_status";
 const SERVER_VERSIONS_KEY = "server_versions";
-const LATEST_VERSION_KEY  = "version_details";
+const LATEST_VERSION_KEY  = "latest_versions";
+const REDIS_APP_NAME = 'audio_server';
 
 // Drain behavior (tune if you want)
 const UPDATE_MAX_DRAIN_MS = parseInt(process.env.UPDATE_MAX_DRAIN_MS || "60000", 10); // 60s
@@ -141,12 +142,12 @@ async function exitStandbyRestoreCapacity({ region, instanceId, autoScalingGroup
 
 
 async function getLatestFromRedis(redis) {
-  const raw = await redis.get(LATEST_VERSION_KEY);
-  if (!raw) throw new Error(`No ${LATEST_VERSION_KEY} set`);
+  const raw = await redis.hget(LATEST_VERSION_KEY, REDIS_APP_NAME);
+  if (!raw) throw new Error(`No ${LATEST_VERSION_KEY} entry for ${REDIS_APP_NAME}`);
   let latest;
-  try { latest = JSON.parse(raw); } catch { throw new Error(`Invalid JSON in ${LATEST_VERSION_KEY}`); }
+  try { latest = JSON.parse(raw); } catch { throw new Error(`Invalid JSON in ${LATEST_VERSION_KEY} field ${REDIS_APP_NAME}`); }
   if (!latest.version || !latest.zipFile) throw new Error(`'version_details' missing version/zipFile`);
-  return latest; 
+  return latest;
 }
 
 async function getPreviousServerVersion(redis, ip) {
@@ -383,7 +384,8 @@ async function updateAndReattachWithRollback({ redis }) {
     // 2) Try update
     console.log("update start");
 
-    await performLocalUpdate({ version: "1.0.3", zipFile: "s3://audio-redenes/apps/Audio_Server/latest.zip" });
+    // Use latest version details from Redis
+    await performLocalUpdate({ version: latest.version, zipFile: latest.zipFile });
 
     console.log("update done");
     // 3) Rejoin: restore desired (+1) & exit standby
