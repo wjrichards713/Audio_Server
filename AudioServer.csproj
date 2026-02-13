@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Concentus" Version="2.2.0" />
     <PackageReference Include="Fleck" Version="1.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.WebSockets" Version="2.3.0" />
     <PackageReference Include="System.Net.WebSockets" Version="4.3.0" />
