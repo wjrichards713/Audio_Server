@@ -1,2 +1,36 @@
-node_modules
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# CMake / C build
+build/
+cmake-build-*/
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local config
 .env
+.env.*
+!.env.example
+config.local.toml
+
+# Logs
+*.log
+logs/

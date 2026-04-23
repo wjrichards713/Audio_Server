@@ -1,0 +1,50 @@
+[package]
+name = "audio-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Public-safety 2-way audio server: binary RTP-like transport, AES-256-GCM, per-subscriber MIX/FWD mixer, floor control, Redis Sentinel, REST API integration."
+
+[[bin]]
+name = "audio-server"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tungstenite.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+hyper.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dashmap.workspace = true
+bytes.workspace = true
+parking_lot.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+aes-gcm.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+rand.workspace = true
+audiopus.workspace = true
+redis.workspace = true
+reqwest.workspace = true
+prometheus.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+arc-swap.workspace = true
+once_cell.workspace = true
+socket2.workspace = true
+bytemuck.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1.37", features = ["test-util", "macros", "rt-multi-thread"] }
