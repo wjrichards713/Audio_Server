@@ -1,0 +1,34 @@
+# audio_client_windows — example config
+#
+# Copy this file to `config.toml` next to the exe and edit. Only a tiny TOML
+# subset is supported: top-level `key = "value"` pairs, `#` comments, ints,
+# floats, strings.
+
+# ── Network ────────────────────────────────────────────────
+server_host = "audio.example.gov"
+ws_port = 443
+
+# Opaque per-device JWT issued by your auth service. Never logged.
+jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.PUT_REAL_JWT_HERE.signature"
+
+# Stable identifier for this physical device.
+device_id = "dispatch-desk-01"
+
+# ── Session defaults ────────────────────────────────────────
+# "mix"     — server sends a single pre-mixed stream (low BW; no per-channel mute)
+# "forward" — server sends one stream per channel (client mixes; full per-channel control)
+session_mode = "mix"
+
+# PTT duck:
+#   "all"    — mute every subscribed channel while talking
+#   "others" — mute everything except the channel you transmit on
+#   "none"   — never duck
+ptt_mute_scope = "others"
+
+# Local sidetone level (dBFS). -20 = comfortable, -120 = effectively off.
+sidetone_db = -20.0
+
+# ── Auto-subscribe ───────────────────────────────────────────
+# Comma-separated channel IDs to subscribe to immediately after auth.
+# Overridden by command-line channel IDs.
+auto_subscribe = ""
