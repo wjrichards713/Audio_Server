@@ -78,10 +78,22 @@ async fn async_main() -> Result<()> {
 
     let ws_state = WsServerState::new(cfg_arc.clone(), sessions.clone(), channels.clone(), presence.clone());
     let ws_task = tokio::spawn(ws_server_run(ws_state));
-    let udp_task = tokio::spawn(udp_ingress::UdpIngress::start(
-        &cfg, sessions.clone(), channels.clone(), shutdown_lis.clone()
-    ));
-    // Note: the above takes ownership of cfg by reference — unwrap into a local for the await.
+
+    // UdpIngress::start takes &Config; we clone into the spawned task so the
+    // future is 'static. The clone is cheap (Config is mostly Strings + scalars).
+    let udp_cfg = cfg.clone();
+    let udp_sessions = sessions.clone();
+    let udp_channels = channels.clone();
+    let udp_shutdown = shutdown_lis.clone();
+    let udp_task = tokio::spawn(async move {
+        if let Err(e) = udp_ingress::UdpIngress::start(
+            &udp_cfg, udp_sessions, udp_channels, udp_shutdown,
+        )
+        .await
+        {
+            tracing::error!(?e, "udp ingress exited with error");
+        }
+    });
     let _ = (ws_task, udp_task);
 
     banner(&cfg);

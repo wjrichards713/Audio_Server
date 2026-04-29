@@ -71,15 +71,40 @@ impl RestClient {
     }
     async fn send_json<T: for<'de> Deserialize<'de>>(&self, method: Method, path: &str, body: Option<&impl Serialize>) -> Result<T> {
         let url = format!("{}{}", self.base, path);
-        let do_send = |attempt: u32| { let mut rb = self.build(method.clone(), &url); if let Some(b) = body { rb = rb.json(b); } async move { tracing::trace!(attempt, %url, "rest request"); rb.send().await } };
-        let resp = match do_send(0).await { Ok(r) => r, Err(e) => { tracing::warn!(%e, "rest transport error, retrying once"); do_send(1).await.map_err(AudioServerError::Rest)? } };
+        // Helper that builds a fresh RequestBuilder per attempt so we can call
+        // it multiple times without `FnOnce` move issues.
+        let body_json = match body {
+            Some(b) => Some(serde_json::to_value(b).map_err(AudioServerError::Serde)?),
+            None => None,
+        };
+        let do_send = |attempt: u32| {
+            let mut rb = self.build(method.clone(), &url);
+            if let Some(ref bv) = body_json { rb = rb.json(bv); }
+            let url = url.clone();
+            async move {
+                tracing::trace!(attempt, %url, "rest request");
+                rb.send().await
+            }
+        };
+        let resp = match do_send(0).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(%e, "rest transport error, retrying once");
+                do_send(1).await.map_err(AudioServerError::Rest)?
+            }
+        };
         let status = resp.status();
-        if status.is_success() { return resp.json::<T>().await.map_err(AudioServerError::Rest); }
+        if status.is_success() {
+            return resp.json::<T>().await.map_err(AudioServerError::Rest);
+        }
         if status.is_server_error() {
-            tracing::warn!(%status, %url, "rest 5xx, retrying once");
+            let url_for_log = url.clone();
+            tracing::warn!(%status, url = %url_for_log, "rest 5xx, retrying once");
             let resp2 = do_send(1).await.map_err(AudioServerError::Rest)?;
             let status2 = resp2.status();
-            if status2.is_success() { return resp2.json::<T>().await.map_err(AudioServerError::Rest); }
+            if status2.is_success() {
+                return resp2.json::<T>().await.map_err(AudioServerError::Rest);
+            }
             return Err(classify_with_body(resp2, "rest").await);
         }
         Err(classify_with_body(resp, "rest").await)

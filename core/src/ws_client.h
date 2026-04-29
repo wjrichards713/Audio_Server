@@ -10,7 +10,21 @@
 extern "C" {
 #endif
 
-typedef struct ae_ws ae_ws_t;
+/* Concrete struct — embedding `ae_ws_t` directly inside another struct
+ * (e.g. `ae_engine`) requires a complete type at the point of declaration.
+ * Treat the fields as internal; only call ws_* functions. */
+#ifdef _WIN32
+  /* SOCKET is uintptr_t on Windows; declare lazily so we don't drag in
+   * winsock2.h here. */
+  typedef unsigned long long ae_ws_sock_t;
+#else
+  typedef int ae_ws_sock_t;
+#endif
+
+typedef struct ae_ws {
+    ae_ws_sock_t sock;
+    int          is_open;
+} ae_ws_t;
 
 /* The audio_engine.c uses simpler 4-arg connect with no headers/TLS. */
 int  ae_ws_connect(ae_ws_t *ws, const char *host, int port, const char *path);
