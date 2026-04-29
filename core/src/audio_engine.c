@@ -165,7 +165,10 @@ ae_error_t ae_engine_subscribe(ae_engine_t *e, uint32_t channel_id, float gain_d
             e->channels[i].muted = muted; e->channels[i].solo = solo; e->channels[i].role = role;
             if (!e->channels[i].decoder) {
                 ae_opus_decoder_create(e->cfg.sample_rate, 1, &e->channels[i].decoder);
-                ae_jb_init(&e->channels[i].jitter, 20, e->cfg.jitter_buffer_frames);
+                ae_jb_init(&e->channels[i].jitter,
+                           /*capacity=*/20,
+                           /*min_fill=*/(uint32_t)e->cfg.jitter_buffer_frames,
+                           /*max_fill=*/20);
             }
             break;
         }
