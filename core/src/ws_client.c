@@ -36,10 +36,9 @@
 #  define AE_TCP_INVALID (-1)
 #endif
 
-struct ae_ws {
-    ae_tcp_t sock;
-    int      is_open;
-};
+/* `struct ae_ws` is now defined in ws_client.h so it can be embedded
+ * in other structs by value. ae_tcp_t (platform-specific socket type)
+ * is compatible with `ae_ws_sock_t` declared in the header. */
 
 static const char b64_tbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 static void b64_encode(const uint8_t *in, int n, char *out) {
