@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 version = "2.0.0"
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.86"
 license = "Proprietary"
 authors = ["Redenes Audio Team"]
 
@@ -33,7 +33,7 @@ hkdf = "0.12"
 sha2 = "0.10"
 rand = "0.8"
 audiopus = { version = "0.3.0-rc", features = [] }
-redis = { version = "0.25", features = ["tokio-comp", "aio", "sentinel", "cluster-async"] }
+redis = { version = "0.25", features = ["tokio-comp", "aio", "sentinel", "connection-manager"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 prometheus = { version = "0.13", features = ["process"] }
 metrics = "0.22"

@@ -5,6 +5,7 @@ Cargo.lock.bak
 
 # CMake / C build
 build/
+build-*/
 cmake-build-*/
 *.o
 *.obj

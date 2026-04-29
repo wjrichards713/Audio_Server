@@ -1,10 +1,14 @@
-//! Redis Sentinel async client.
+//! Redis Sentinel async client (redis 0.25 API).
+//!
+//! Uses the lower-level `Sentinel` directly because `SentinelClient::async_get_client`
+//! is private in 0.25; this gives us a `Client` we can wrap in a `ConnectionManager`
+//! for multiplexed access from many concurrent commands.
 use crate::config::Config;
 use crate::error::{AudioServerError, Result};
 use crate::protocol::ChannelId;
 use redis::aio::ConnectionManager;
-use redis::sentinel::{SentinelClient, SentinelNodeConnectionInfo, SentinelServerType};
-use redis::{AsyncCommands, Client, ProtocolVersion, RedisError};
+use redis::sentinel::{Sentinel, SentinelNodeConnectionInfo};
+use redis::{AsyncCommands, Client, RedisError};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
@@ -17,24 +21,45 @@ pub struct PubSubMessage { pub channel: String, pub pattern: Option<String>, pub
 #[derive(Clone)]
 pub struct RedisClient { inner: Arc<Inner> }
 
-struct Inner { sentinel: Mutex<SentinelClient>, manager: Mutex<Option<ConnectionManager>>, master_name: String }
+struct Inner {
+    sentinel: Mutex<Sentinel>,
+    manager: Mutex<Option<ConnectionManager>>,
+    master_name: String,
+    node_info: SentinelNodeConnectionInfo,
+}
 
 impl RedisClient {
     pub async fn connect(cfg: &Config) -> Result<Self> {
         let nodes: Vec<String> = cfg.redis_sentinels.iter().map(|s| if s.starts_with("redis://") { s.clone() } else { format!("redis://{s}") }).collect();
         let node_info = SentinelNodeConnectionInfo {
             tls_mode: None,
-            redis_connection_info: Some(redis::RedisConnectionInfo { db: 0, username: None, password: cfg.redis_password.clone(), protocol: ProtocolVersion::RESP2 }),
+            redis_connection_info: Some(redis::RedisConnectionInfo {
+                db: 0,
+                username: None,
+                password: cfg.redis_password.clone(),
+            }),
         };
-        let sentinel = SentinelClient::build(nodes, cfg.redis_master_name.clone(), Some(node_info), SentinelServerType::Master)
+        let sentinel = Sentinel::build(nodes)
             .map_err(|e| AudioServerError::Other(format!("sentinel build: {e}")))?;
-        Ok(Self { inner: Arc::new(Inner { sentinel: Mutex::new(sentinel), manager: Mutex::new(None), master_name: cfg.redis_master_name.clone() }) })
+        Ok(Self { inner: Arc::new(Inner {
+            sentinel: Mutex::new(sentinel),
+            manager: Mutex::new(None),
+            master_name: cfg.redis_master_name.clone(),
+            node_info,
+        }) })
     }
 
+    /// Resolve the current Redis master via Sentinel and wrap it in a
+    /// `ConnectionManager`. Cached; rebuilt on transient errors.
     async fn manager(&self) -> Result<ConnectionManager> {
         let mut slot = self.inner.manager.lock().await;
         if let Some(m) = slot.as_ref() { return Ok(m.clone()); }
-        let client: Client = { let mut s = self.inner.sentinel.lock().await; s.async_get_client().await.map_err(AudioServerError::Redis)? };
+        let client: Client = {
+            let mut s = self.inner.sentinel.lock().await;
+            s.async_master_for(&self.inner.master_name, Some(&self.inner.node_info))
+                .await
+                .map_err(AudioServerError::Redis)?
+        };
         let mgr = ConnectionManager::new(client).await.map_err(AudioServerError::Redis)?;
         *slot = Some(mgr.clone());
         Ok(mgr)
@@ -125,7 +150,12 @@ impl RedisClient {
     }
     async fn run_pubsub_loop(&self, patterns: &[String], tx: &mpsc::Sender<PubSubMessage>) -> Result<()> {
         use futures_util::StreamExt;
-        let client: Client = { let mut s = self.inner.sentinel.lock().await; s.async_get_client().await.map_err(AudioServerError::Redis)? };
+        let client: Client = {
+            let mut s = self.inner.sentinel.lock().await;
+            s.async_master_for(&self.inner.master_name, Some(&self.inner.node_info))
+                .await
+                .map_err(AudioServerError::Redis)?
+        };
         let mut pubsub = client.get_async_pubsub().await.map_err(AudioServerError::Redis)?;
         for pat in patterns { pubsub.psubscribe(pat).await.map_err(AudioServerError::Redis)?; }
         let mut stream = pubsub.on_message();
