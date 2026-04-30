@@ -3,7 +3,10 @@
  */
 #include "opus_codec.h"
 #include "../include/audio_engine.h"
-#include <opus.h>
+/* vcpkg installs opus headers under an opus/ subdir on Windows; Linux
+ * pkg-config includes /usr/include/opus directly so both forms work, but
+ * the subdir form is portable. */
+#include <opus/opus.h>
 #include <stdlib.h>
 #include <string.h>
 

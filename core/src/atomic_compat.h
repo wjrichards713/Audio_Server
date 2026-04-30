@@ -8,6 +8,14 @@
 
 #if defined(_MSC_VER)
 #include <intrin.h>
+/* Suppress winsock.h auto-include from windows.h so callers can include
+ * winsock2.h cleanly afterwards (network.h, ws_client.c, ws_client.h). */
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 typedef volatile long     ae_atomic_i32;
 typedef volatile long     ae_atomic_u32;
