@@ -47,12 +47,24 @@ struct ae_engine {
     uint64_t             client_id;
     ae_channel_sub_t     channels[AE_MAX_SUBSCRIBED_CHANNELS];
     ae_opus_enc_t       *encoder;
+    ae_opus_dec_t       *mix_decoder;     /* used for MIX-mode incoming stream */
     ae_ringbuf_t         playback_ring;
     ae_ringbuf_t         capture_ring;
     uint32_t             ptt_holding_channel;
     bool                 ptt_engaged;
     ae_mixer_t           mixer;
     float                master_volume;
+    /* TX state — owned by the process pump thread (writer) and read by stats. */
+    uint32_t             tx_seq;
+    uint32_t             tx_timestamp;
+    uint64_t             tx_iv_counter;
+    /* Thread coordination. `running` is the run flag both rx_thread and
+     * the user's pump thread observe; flipping it false triggers clean
+     * teardown. */
+    ae_atomic_bool       running;
+    ae_thread_t          rx_thread_h;
+    bool                 rx_thread_running;
+    /* Stats (atomics not strictly needed yet — single-writer per field). */
     uint64_t             packets_sent;
     uint64_t             packets_received;
     uint64_t             packets_dropped;

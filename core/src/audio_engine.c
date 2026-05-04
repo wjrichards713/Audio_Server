@@ -1,5 +1,54 @@
 /**
  * @file audio_engine.c — cross-platform client engine implementation.
+ *
+ * Audio data path
+ * ---------------
+ * Two threads keep audio flowing once the client has authenticated:
+ *
+ *   1. The user's pump thread (in clients/windows/src/main.cpp) calls
+ *      ae_engine_process() every 20 ms. That function pulls one frame of
+ *      mono float32 PCM out of the capture ring buffer (filled by the host
+ *      audio backend — WASAPI on Windows, AAudio on Android, etc.), Opus-
+ *      encodes it, AES-256-GCM-encrypts it, and sends it as one UDP packet
+ *      to the server. Frames captured while the client does NOT hold the
+ *      floor are dropped silently — this enforces the "talk only when PTT
+ *      is held" rule on the client side and saves uplink bandwidth.
+ *
+ *   2. ae_engine_rx_thread() (started in ae_engine_connect, joined in
+ *      ae_engine_disconnect) blocks on UDP recv with a short timeout.
+ *      When a packet arrives it parses the 32-byte header, derives the
+ *      per-channel egress key (server→client) from the session key with
+ *      HKDF-SHA256, AEAD-decrypts, Opus-decodes, and writes the resulting
+ *      PCM samples into the playback ring buffer. The host audio backend
+ *      pulls those samples via ae_engine_read_playback().
+ *
+ * Volume / mute / solo / role handling
+ * ------------------------------------
+ * All per-channel preferences are arbitrated server-side in MIX mode (the
+ * default); the client just receives one already-mixed stream. The C API
+ * functions ae_engine_set_channel_gain_db / _muted / _solo / _role build
+ * a JSON `set_channel_prefs` op and send it over the WebSocket; the server
+ * pipes those updates to its per-subscriber mixer task which applies them
+ * with a 5 ms linear gain ramp to avoid zipper noise. The next 20 ms tick
+ * the client receives reflects the new state.
+ *
+ * In FORWARD mode the server forwards each subscribed channel as its own
+ * stream and the client mixes locally using the per-channel decoders +
+ * jitter buffers in `e->channels[]`. The forward-mode mix is currently
+ * stubbed (frames decode but are not yet summed by the client mixer);
+ * MIX mode is the supported default.
+ *
+ * Crypto
+ * ------
+ * Per WIRE_SPEC.md §5 the client uses two derived keys per (channel_id,
+ * key_version) pair:
+ *   - K_egress  = HKDF-Expand(K_session, "out" || ch || kv) — *server's*
+ *     egress key, used by the client to DECRYPT incoming packets.
+ *   - K_ingress = HKDF-Expand(K_session, "in"  || ch || kv) — *server's*
+ *     ingress key, used by the client to ENCRYPT outgoing packets.
+ * Keys are derived on demand (HKDF is fast). For high-rate workloads they
+ * could be cached per (ch, kv); for one TX channel + one MIX RX stream the
+ * derivation cost is negligible.
  */
 #include "audio_engine.h"
 #include "internal.h"
@@ -32,6 +81,175 @@ static void ae_log(ae_log_level_t level, const char *fmt, ...) {
     else fprintf(stderr, "[ae] %s\n", buf);
 }
 
+/* ─── Audio data path: RX thread + TX in ae_engine_process ──────────── */
+/*
+ * Both functions are private to this file. Public surface stays the same:
+ * - ae_engine_process()         drives the TX side (called from a 20 ms
+ *                               pump thread the host owns).
+ * - ae_engine_rx_thread_fn()    drives the RX side (a worker thread we
+ *                               spawn in ae_engine_connect, join in
+ *                               ae_engine_disconnect).
+ */
+
+/* Decrypt + Opus-decode a single MIX-egress packet into the playback ring. */
+static void ae_engine_handle_mix_packet(ae_engine_t *e, const uint8_t *pkt, int n) {
+    ae_header_t hdr;
+    uint8_t plaintext[AE_OPUS_MAX_PACKET];
+    /* Server encrypted with K_egress = HKDF(sk, "out" || ch || kv) — the
+     * client decrypts with the SAME key. WIRE_SPEC §5. */
+    uint8_t key[AE_CRYPTO_KEY_SIZE];
+    /* For MIX egress channel_id == AE_CHANNEL_ID_MIX; we still derive with
+     * that exact value so client and server agree byte-for-byte. */
+    /* Peek the header before decrypting so we know the key version. */
+    if (ae_header_parse(pkt, n, &hdr) != 0) {
+        e->packets_dropped++;
+        return;
+    }
+    ae_derive_channel_key(e->session_key, "out", 3,
+                          hdr.channel_id, hdr.key_version, key);
+    int pt_len = ae_packet_open(pkt, n, key, e->session_salt,
+                                &hdr, plaintext, sizeof(plaintext));
+    ae_crypto_zeroize(key, sizeof(key));
+    if (pt_len < 0) {
+        ae_log(AE_LOG_DEBUG, "rx: decrypt failed (rc=%d) ch=%u kv=%u",
+               pt_len, hdr.channel_id, (unsigned)hdr.key_version);
+        e->packets_dropped++;
+        return;
+    }
+    e->packets_received++;
+
+    /* Decode Opus → 960 mono float32. ae_opus_decode handles 0-byte (DTX)
+     * input by running PLC. */
+    float pcm[AE_FRAME_SIZE_SAMPLES];
+    int decoded = ae_opus_decode(e->mix_decoder,
+                                 (pt_len > 0) ? plaintext : NULL,
+                                 pt_len,
+                                 pcm,
+                                 /*decode_fec*/ 0);
+    if (decoded <= 0) {
+        ae_log(AE_LOG_DEBUG, "rx: opus decode rc=%d", decoded);
+        return;
+    }
+
+    /* Write to the playback ring. If the ring is full, drop oldest by just
+     * writing what fits — caller's playback callback drains it at hardware
+     * rate. The ringbuf returns how many it accepted; under steady-state
+     * playback this should always be `decoded`. */
+    ae_ringbuf_write(&e->playback_ring, pcm, (uint32_t)decoded);
+}
+
+/* RX thread loop. Started in ae_engine_connect, exits when running flips
+ * false. Reads UDP, decrypts, decodes, hands PCM to the playback ring. */
+#if defined(_WIN32)
+static DWORD WINAPI ae_engine_rx_thread_fn(LPVOID arg) {
+#else
+static void *ae_engine_rx_thread_fn(void *arg) {
+#endif
+    ae_engine_t *e = (ae_engine_t *)arg;
+    uint8_t pkt[AE_MAX_UDP_PACKET];
+    while (ae_atomic_load_bool(&e->running)) {
+        int n = ae_udp_recv(&e->udp, pkt, sizeof(pkt), /*timeout_ms*/ 100);
+        if (n <= 0) continue;                /* timeout (0) or transient err */
+        if (n < AE_HEADER_SIZE) { e->packets_dropped++; continue; }
+
+        /* Quickly peek the packet type. We treat MIX/Mixed and Audio
+         * (FWD per-channel) the same way for now: route to the MIX
+         * decoder. FWD-mode per-channel decoding is wired but mixing
+         * back into the playback ring is left to a follow-up. */
+        uint8_t ptype = pkt[1];
+        if (ptype == AE_PKT_AUDIO || ptype == AE_PKT_MIXED) {
+            ae_engine_handle_mix_packet(e, pkt, n);
+        } else if (ptype == AE_PKT_PONG) {
+            /* RTT update would go here once we wire ping/pong. */
+        }
+        /* Other packet types (keepalive/ping) are server-bound only. */
+    }
+#if defined(_WIN32)
+    return 0;
+#else
+    return NULL;
+#endif
+}
+
+/* TX path: pull 20 ms of capture, encode, encrypt, send. No-op if the
+ * client doesn't currently hold the floor on any channel — this enforces
+ * "talk only when PTT is held" without the client having to gate the
+ * audio thread. */
+static void ae_engine_tx_tick(ae_engine_t *e) {
+    if (!e->connected) return;
+    if (!e->ptt_engaged || e->ptt_holding_channel == 0) {
+        /* Drain stale captured PCM so the ring doesn't fill up while
+         * idle (the host audio backend keeps delivering samples even
+         * when we're not transmitting). One frame per tick is enough
+         * because the capture thread feeds at the same cadence. */
+        float scratch[AE_FRAME_SIZE_SAMPLES];
+        ae_ringbuf_read(&e->capture_ring, scratch, AE_FRAME_SIZE_SAMPLES);
+        return;
+    }
+
+    float pcm[AE_FRAME_SIZE_SAMPLES];
+    uint32_t got = ae_ringbuf_read(&e->capture_ring, pcm, AE_FRAME_SIZE_SAMPLES);
+    if (got < AE_FRAME_SIZE_SAMPLES) {
+        /* Capture hasn't produced a full frame yet; skip this tick. */
+        return;
+    }
+
+    /* Encode 20 ms of mono float32 → Opus. */
+    uint8_t opus_buf[AE_OPUS_MAX_PACKET];
+    int opus_len = ae_opus_encode(e->encoder, pcm, opus_buf, sizeof(opus_buf));
+    if (opus_len < 0) {
+        ae_log(AE_LOG_DEBUG, "tx: opus_encode rc=%d", opus_len);
+        return;
+    }
+    if (opus_len == 0) {
+        /* DTX-silenced frame — nothing to send. Still advance timestamp
+         * so the decoder's PLC keeps the playout clock aligned. */
+        e->tx_timestamp += AE_FRAME_SIZE_SAMPLES;
+        return;
+    }
+
+    /* Build header. server_id is 0 from a client (it's filled in by the
+     * server when forwarding cross-server). */
+    ae_header_t hdr = {
+        .version       = AE_PROTOCOL_VERSION,
+        .packet_type   = AE_PKT_AUDIO,
+        .payload_type  = AE_PAYLOAD_OPUS_48K_MONO,
+        .flags         = 0,
+        .sequence      = e->tx_seq,
+        .timestamp     = e->tx_timestamp,
+        .channel_id    = e->ptt_holding_channel,
+        .client_id     = e->client_id,
+        .server_id     = 0,
+        .key_version   = e->key_version,
+        .payload_length = 0,    /* set by ae_packet_build_audio */
+    };
+    e->tx_seq++;
+    e->tx_timestamp += AE_FRAME_SIZE_SAMPLES;
+
+    /* Client encrypts with K_ingress (server's "in" label) — that's the
+     * key the server expects on its ingress UDP socket. WIRE_SPEC §5. */
+    uint8_t key[AE_CRYPTO_KEY_SIZE];
+    ae_derive_channel_key(e->session_key, "in", 2,
+                          e->ptt_holding_channel, e->key_version, key);
+
+    uint8_t pkt[AE_MAX_UDP_PACKET];
+    uint64_t iv = e->tx_iv_counter++;
+    int pkt_len = ae_packet_build_audio(&hdr, e->session_salt, key, iv,
+                                        opus_buf, opus_len, pkt, sizeof(pkt));
+    ae_crypto_zeroize(key, sizeof(key));
+    if (pkt_len < 0) {
+        ae_log(AE_LOG_DEBUG, "tx: packet_build rc=%d", pkt_len);
+        return;
+    }
+
+    int sent = ae_udp_send(&e->udp, pkt, pkt_len);
+    if (sent != pkt_len) {
+        e->packets_dropped++;
+        return;
+    }
+    e->packets_sent++;
+}
+
 ae_config_t ae_config_default(void) {
     ae_config_t c = {
         .sample_rate = AE_SAMPLE_RATE, .frame_size_samples = AE_FRAME_SIZE_SAMPLES,
@@ -49,10 +267,27 @@ ae_engine_t *ae_engine_create(const ae_config_t *cfg) {
     if (!e) return NULL;
     e->cfg = *cfg; e->master_volume = 1.0f;
     e->ptt_holding_channel = 0; e->ptt_engaged = false;
+    /* calloc zero-initialises the struct, but AE_INVALID_SOCK on Windows is
+     * INVALID_SOCKET = ~0, not 0. Without this explicit init, the udp_connect
+     * fast-path "is socket already open?" check thinks fd 0 is a real socket
+     * and skips creating one, then connect() on fd 0 fails on Windows. */
+    e->udp.sock = AE_INVALID_SOCK;
+    /* TX state: sequence/timestamp start at 0; IV counter starts at 1
+     * (0 is reserved). All three increment monotonically per outgoing
+     * packet so the AES-GCM nonce never repeats under the same key. */
+    e->tx_seq = 0;
+    e->tx_timestamp = 0;
+    e->tx_iv_counter = 1;
+    ae_atomic_store_bool(&e->running, false);
     mtx_init_compat(&e->state_mtx);
     if (ae_ringbuf_init(&e->playback_ring, AE_FRAME_SIZE_SAMPLES * 64) != 0) goto fail;
     if (ae_ringbuf_init(&e->capture_ring,  AE_FRAME_SIZE_SAMPLES * 64) != 0) goto fail;
     if (ae_opus_encoder_create(cfg->sample_rate, 1, 1, cfg->opus_bitrate_bps, cfg->opus_complexity, cfg->opus_fec, cfg->opus_dtx, &e->encoder) != 0) goto fail;
+    /* Decoder for the MIX-mode incoming stream. In MIX mode the server
+     * sends one combined Opus stream with channel_id = 0xFFFFFFFF; this
+     * one decoder handles it. FWD mode uses the per-channel decoders in
+     * e->channels[].decoder instead. */
+    if (ae_opus_decoder_create(cfg->sample_rate, 1, &e->mix_decoder) != 0) goto fail;
     if (ae_mixer_init(&e->mixer, AE_MAX_MIX_INPUTS, AE_FRAME_SIZE_SAMPLES) != 0) goto fail;
     ae_log(AE_LOG_INFO, "engine created (sr=%d frame=%d bitrate=%d)", cfg->sample_rate, cfg->frame_size_samples, cfg->opus_bitrate_bps);
     return e;
@@ -71,6 +306,8 @@ void ae_engine_destroy(ae_engine_t *e) {
         }
     }
     ae_opus_encoder_destroy(e->encoder);
+    ae_opus_decoder_destroy(e->mix_decoder);
+    e->mix_decoder = NULL;
     ae_mixer_destroy(&e->mixer);
     ae_ringbuf_destroy(&e->playback_ring);
     ae_ringbuf_destroy(&e->capture_ring);
@@ -124,6 +361,15 @@ ae_error_t ae_engine_connect(ae_engine_t *e, const char *host, int ws_port, cons
     ae_hkdf_extract(e->session_salt, 4, client_pk, 32, prk);
     ae_hkdf_expand(prk, (const uint8_t *)"redenes/audio/v2/session", 24, e->session_key, 32);
     e->connected = true; e->authed = true;
+    /* Spin up the RX worker. It owns the UDP recv loop for the lifetime of
+     * the connection; ae_engine_disconnect() flips `running` false and joins. */
+    ae_atomic_store_bool(&e->running, true);
+    if (ae_thread_create(&e->rx_thread_h, ae_engine_rx_thread_fn, e) == 0) {
+        e->rx_thread_running = true;
+    } else {
+        ae_log(AE_LOG_ERROR, "failed to start rx thread");
+        ae_atomic_store_bool(&e->running, false);
+    }
     if (e->event_cb) { ae_event_t ev = { .type = AE_EVENT_AUTHED }; e->event_cb(&ev, e->event_ud); }
     ae_log(AE_LOG_INFO, "authed, udp endpoint %s:%d", udp_host_str, udp_port);
     return AE_OK;
@@ -132,6 +378,14 @@ ae_error_t ae_engine_connect(ae_engine_t *e, const char *host, int ws_port, cons
 void ae_engine_disconnect(ae_engine_t *e) {
     if (!e) return;
     if (e->connected) {
+        /* Tell the RX thread to stop and wait for it to exit before we tear
+         * down the UDP socket it's reading from. The 100 ms recv timeout
+         * inside the loop bounds shutdown latency. */
+        ae_atomic_store_bool(&e->running, false);
+        if (e->rx_thread_running) {
+            ae_thread_join(e->rx_thread_h);
+            e->rx_thread_running = false;
+        }
         ae_ws_close(&e->ws); ae_udp_close(&e->udp);
         e->connected = false; e->authed = false;
         if (e->event_cb) { ae_event_t ev = { .type = AE_EVENT_DISCONNECTED }; e->event_cb(&ev, e->event_ud); }
@@ -310,7 +564,14 @@ int ae_engine_read_playback(ae_engine_t *e, float *out, int frames) {
     return frames;
 }
 
-void ae_engine_process(ae_engine_t *e) { (void)e; }
+/*
+ * The host's 20 ms pump thread (e.g. clients/windows/src/main.cpp) calls
+ * this once per frame. All TX work — capture-ring drain, Opus encode,
+ * AES-GCM seal, UDP send — happens here. RX is handled by ae_engine_rx_thread_fn.
+ */
+void ae_engine_process(ae_engine_t *e) {
+    if (e) ae_engine_tx_tick(e);
+}
 
 ae_stats_t ae_engine_get_stats(const ae_engine_t *e) {
     ae_stats_t s = {0};
