@@ -36,3 +36,9 @@ config.local.toml
 # Logs
 *.log
 logs/
+
+bin/
+obj/
+
+node_modules/
+dist/
