@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>File Mixer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+  h1 { font-size: 1.4em; color: #a0c4ff; margin-bottom: 16px; }
+  #status { font-size: 0.85em; color: #aaa; margin-bottom: 12px; min-height: 18px; }
+  #tracks { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+  .strip {
+    background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
+    padding: 12px; width: 160px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .strip-name { font-size: 0.78em; color: #a0c4ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .strip label { font-size: 0.75em; color: #888; }
+  .strip input[type=range] { width: 100%; accent-color: #a0c4ff; }
+  .strip .vol-val { font-size: 0.75em; color: #ccc; text-align: center; }
+  .strip button { font-size: 0.72em; padding: 3px 6px; border-radius: 4px; border: none; cursor: pointer; background: #0f3460; color: #ccc; }
+  .strip button.muted { background: #b00020; color: #fff; }
+  #controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  #controls select, #controls label { font-size: 0.82em; color: #bbb; }
+  #controls select { background: #16213e; color: #ccc; border: 1px solid #0f3460; padding: 4px 8px; border-radius: 4px; }
+  .btn { padding: 8px 18px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.88em; font-family: monospace; }
+  #mixBtn { background: #0f3460; color: #a0c4ff; }
+  #mixBtn:hover { background: #1a4a8a; }
+  #saveBtn { background: #1a4a2e; color: #90ee90; }
+  #saveBtn:hover { background: #266040; }
+  #player { width: 100%; margin-top: 14px; display: none; }
+  #saveStatus { font-size: 0.78em; color: #90ee90; margin-top: 6px; min-height: 16px; }
+</style>
+</head>
+<body>
+<h1>File Mixer</h1>
+<div id="status">Loading tracks...</div>
+<div id="tracks"></div>
+<div id="controls">
+  <label>Duration: <select id="durMode">
+    <option value="longest">Longest</option>
+    <option value="shortest">Shortest</option>
+    <option value="first">First</option>
+  </select></label>
+  <label><input type="checkbox" id="normalize"> Normalize</label>
+  <button class="btn" id="mixBtn">Mix &amp; Play</button>
+  <button class="btn" id="saveBtn">Save to File</button>
+</div>
+<audio id="player" controls></audio>
+<div id="saveStatus"></div>
+
+<script>
+const BASE = '';
+let trackMeta = [];
+let currentBlob = null;
+let mixTimer = null;
+let hasMixedOnce = false;
+let abortCtrl = null;
+let nextPlayTime = 0;
+
+const statusEl = document.getElementById('status');
+const tracksEl = document.getElementById('tracks');
+const player = document.getElementById('player');
+const saveStatus = document.getElementById('saveStatus');
+
+async function loadTracks() {
+  const res = await fetch(`${BASE}/api/mixer/tracks`);
+  const tracks = await res.json();
+  trackMeta = tracks;
+  tracksEl.innerHTML = '';
+  if (!tracks.length) { statusEl.textContent = 'No tracks in ./tracks/ directory.'; return; }
+  for (const t of tracks) {
+    const strip = document.createElement('div');
+    strip.className = 'strip';
+    strip.dataset.name = t.name;
+    strip.innerHTML = `
+      <div class="strip-name" title="${t.name}">${t.name}</div>
+      <label>Volume</label>
+      <input type="range" min="0" max="200" value="100" step="1">
+      <div class="vol-val">100%</div>
+      <button class="mute-btn">Mute</button>`;
+    const slider = strip.querySelector('input');
+    const valEl = strip.querySelector('.vol-val');
+    const muteBtn = strip.querySelector('.mute-btn');
+    slider.addEventListener('input', () => { valEl.textContent = slider.value + '%'; scheduleMix(); });
+    muteBtn.addEventListener('click', () => {
+      muteBtn.classList.toggle('muted');
+      muteBtn.textContent = muteBtn.classList.contains('muted') ? 'Unmute' : 'Mute';
+      scheduleMix();
+    });
+    tracksEl.appendChild(strip);
+  }
+  statusEl.textContent = `Loaded ${tracks.length} track(s).`;
+}
+
+function buildPayload() {
+  const strips = tracksEl.querySelectorAll('.strip');
+  const tracks = [];
+  for (const s of strips) {
+    const slider = s.querySelector('input');
+    const muted = s.querySelector('.mute-btn').classList.contains('muted');
+    tracks.push({ name: s.dataset.name, volume: parseInt(slider.value) / 100, muted });
+  }
+  return {
+    tracks,
+    normalize: document.getElementById('normalize').checked,
+    duration_mode: document.getElementById('durMode').value,
+  };
+}
+
+function scheduleMix() {
+  if (!hasMixedOnce) return;
+  clearTimeout(mixTimer);
+  mixTimer = setTimeout(doMix, 500);
+}
+
+async function doMix() {
+  hasMixedOnce = true;
+  if (abortCtrl) abortCtrl.abort();
+  abortCtrl = new AbortController();
+  const resumeTime = (!player.ended && player.duration > 0) ? player.currentTime : 0;
+  statusEl.textContent = 'Mixing...';
+  try {
+    const res = await fetch(`${BASE}/api/mixer/mix`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildPayload()),
+      signal: abortCtrl.signal,
+    });
+    if (!res.ok) { const e = await res.text(); statusEl.textContent = 'Error: ' + e; return; }
+    const blob = await res.blob();
+    if (currentBlob) URL.revokeObjectURL(player.src);
+    currentBlob = blob;
+    const url = URL.createObjectURL(blob);
+    player.style.display = 'block';
+    player.oncanplay = () => {
+      if (resumeTime > 0 && resumeTime < player.duration - 0.1) player.currentTime = resumeTime;
+      player.play().catch(() => {});
+      player.oncanplay = null;
+    };
+    player.src = url;
+    statusEl.textContent = 'Mix ready — playing.';
+  } catch (e) {
+    if (e.name !== 'AbortError') statusEl.textContent = 'Fetch error: ' + e.message;
+  }
+}
+
+async function saveMix() {
+  const payload = buildPayload();
+  const name = prompt('Save filename (without .mp3):', 'mix_' + Date.now());
+  if (!name) return;
+  saveStatus.textContent = 'Saving...';
+  try {
+    const res = await fetch(`${BASE}/api/mixer/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, filename: name }),
+    });
+    if (res.ok) { const d = await res.json(); saveStatus.textContent = `Saved: ${d.filename}`; }
+    else { saveStatus.textContent = 'Save failed: ' + await res.text(); }
+  } catch (e) { saveStatus.textContent = 'Error: ' + e.message; }
+}
+
+document.getElementById('mixBtn').addEventListener('click', doMix);
+document.getElementById('saveBtn').addEventListener('click', saveMix);
+
+loadTracks();
+</script>
+</body>
+</html>

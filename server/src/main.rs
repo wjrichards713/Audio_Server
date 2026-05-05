@@ -3,10 +3,12 @@
 use std::sync::Arc;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+mod admin_routes;
 mod auth;
 mod channel;
 mod config;
 mod error;
+mod file_mixer_routes;
 mod floor;
 mod keys;
 mod media;

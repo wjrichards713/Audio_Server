@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Browser Audio Client</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 24px; }
+  h1 { font-size: 1.4em; color: #a0c4ff; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  label { font-size: 0.82em; color: #aaa; }
+  input[type=text], input[type=number] {
+    background: #16213e; color: #ccc; border: 1px solid #0f3460;
+    padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 0.85em;
+  }
+  input[type=range] { accent-color: #a0c4ff; width: 160px; }
+  button {
+    padding: 7px 18px; border-radius: 5px; border: none; cursor: pointer;
+    font-size: 0.85em; font-family: monospace;
+  }
+  #connectBtn { background: #0f5132; color: #90ee90; }
+  #connectBtn.connected { background: #5a0000; color: #ff9090; }
+  #muteBtn { background: #0f3460; color: #a0c4ff; }
+  #muteBtn.muted { background: #b00020; color: #fff; }
+  #statusLine { font-size: 0.82em; color: #aaa; margin: 8px 0; min-height: 16px; }
+  #log { font-size: 0.72em; color: #666; max-height: 120px; overflow-y: auto; background: #0d1b2a; padding: 8px; border-radius: 4px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<h1>Browser Audio Client</h1>
+
+<div class="row">
+  <label>Channel ID: <input type="number" id="channelId" value="1" min="1" style="width:80px"></label>
+  <label>Name: <input type="text" id="userName" value="Browser User" style="width:140px"></label>
+</div>
+<div class="row">
+  <label>Input Gain:
+    <input type="range" id="inputGain" min="0" max="300" value="100">
+    <span id="gainVal">100%</span>
+  </label>
+</div>
+<div class="row">
+  <button id="connectBtn">Connect</button>
+  <button id="muteBtn">Mute Mic</button>
+</div>
+<div id="statusLine">Disconnected.</div>
+<div id="log"></div>
+
+<script>
+const FRAME_SIZE = 2048;
+const SAMPLE_RATE = 48000;
+
+let ws = null;
+let audioCtx = null;
+let mediaStream = null;
+let workletNode = null;
+let nextPlayTime = 0;
+let connected = false;
+let micMuted = false;
+
+const connectBtn = document.getElementById('connectBtn');
+const muteBtn = document.getElementById('muteBtn');
+const statusLine = document.getElementById('statusLine');
+const logEl = document.getElementById('log');
+const gainSlider = document.getElementById('inputGain');
+const gainVal = document.getElementById('gainVal');
+
+gainSlider.addEventListener('input', () => { gainVal.textContent = gainSlider.value + '%'; });
+
+function log(msg) {
+  const line = document.createElement('div');
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function wsUrl() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const port = location.port || (location.protocol === 'https:' ? '443' : '80');
+  return `${proto}://${location.hostname}:${port}/ws`;
+}
+
+const WORKLET_CODE = `
+class AudioProcessor extends AudioWorkletProcessor {
+  constructor() { super(); this._buf = new Float32Array(${FRAME_SIZE}); this._pos = 0; }
+  process(inputs) {
+    const ch = inputs[0]?.[0];
+    if (!ch) return true;
+    for (let i = 0; i < ch.length; i++) {
+      this._buf[this._pos++] = ch[i];
+      if (this._pos >= ${FRAME_SIZE}) {
+        this.port.postMessage(this._buf.slice());
+        this._pos = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('audio-processor', AudioProcessor);
+`;
+
+async function connect() {
+  if (connected) { disconnect(); return; }
+
+  audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  const blob = new Blob([WORKLET_CODE], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  await audioCtx.audioWorklet.addModule(url);
+  URL.revokeObjectURL(url);
+
+  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, sampleRate: SAMPLE_RATE } });
+  const source = audioCtx.createMediaStreamSource(mediaStream);
+  workletNode = new AudioWorkletNode(audioCtx, 'audio-processor');
+
+  const channelId = parseInt(document.getElementById('channelId').value);
+
+  workletNode.port.onmessage = (e) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN || micMuted) return;
+    const frame = e.data;
+    const gain = parseInt(gainSlider.value) / 100;
+    const scaled = gain !== 1 ? frame.map(s => s * gain) : frame;
+    ws.send(JSON.stringify({ op: 'audio_frame', channel_id: channelId, samples: Array.from(scaled) }));
+  };
+
+  source.connect(workletNode);
+  workletNode.connect(audioCtx.destination);
+
+  // Mute local monitor (we only want to hear the mixed output)
+  const silentGain = audioCtx.createGain();
+  silentGain.gain.value = 0;
+  workletNode.connect(silentGain);
+  silentGain.connect(audioCtx.destination);
+
+  nextPlayTime = 0;
+
+  ws = new WebSocket(wsUrl());
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    connected = true;
+    connectBtn.textContent = 'Disconnect';
+    connectBtn.classList.add('connected');
+    statusLine.textContent = 'Connected. Authenticating...';
+    log('WebSocket connected');
+
+    // Send auth (dev mode — empty JWT)
+    ws.send(JSON.stringify({
+      op: 'auth',
+      data: {
+        jwt: '',
+        device_id: 'browser-' + Math.random().toString(36).slice(2, 8),
+        client_pubkey_x25519_hex: '0'.repeat(64),
+      }
+    }));
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.op === 'auth_ok') {
+        statusLine.textContent = `Connected — session ${msg.data.session_id.slice(0, 8)}...`;
+        log(`Auth OK, session=${msg.data.session_id.slice(0, 8)}`);
+        // Subscribe to channel
+        ws.send(JSON.stringify({ op: 'subscribe', data: { channel_id: channelId } }));
+      } else if (msg.op === 'audio_mix') {
+        playMixedFrame(msg.data.samples);
+      } else if (msg.op === 'subscriptions_state') {
+        statusLine.textContent = `Active — ${msg.data.channels.length} channel(s)`;
+      }
+    } catch (_) {}
+  };
+
+  ws.onerror = (e) => { log('WS error: ' + e); };
+  ws.onclose = () => {
+    connected = false;
+    connectBtn.textContent = 'Connect';
+    connectBtn.classList.remove('connected');
+    statusLine.textContent = 'Disconnected.';
+    log('WebSocket closed');
+    cleanup();
+  };
+}
+
+function playMixedFrame(samples) {
+  if (!audioCtx || !samples?.length) return;
+  const buf = audioCtx.createBuffer(1, samples.length, SAMPLE_RATE);
+  buf.copyToChannel(new Float32Array(samples), 0);
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(audioCtx.destination);
+  const now = audioCtx.currentTime;
+  if (nextPlayTime < now) nextPlayTime = now + 0.05;
+  src.start(nextPlayTime);
+  nextPlayTime += buf.duration;
+}
+
+function disconnect() {
+  if (ws) { ws.close(); ws = null; }
+  cleanup();
+}
+
+function cleanup() {
+  if (workletNode) { workletNode.disconnect(); workletNode = null; }
+  if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+}
+
+connectBtn.addEventListener('click', connect);
+
+muteBtn.addEventListener('click', () => {
+  micMuted = !micMuted;
+  muteBtn.classList.toggle('muted', micMuted);
+  muteBtn.textContent = micMuted ? 'Unmute Mic' : 'Mute Mic';
+});
+</script>
+</body>
+</html>

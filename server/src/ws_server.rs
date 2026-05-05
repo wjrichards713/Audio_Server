@@ -5,6 +5,8 @@ use std::time::Duration;
 use axum::{extract::{ws::WebSocketUpgrade, ConnectInfo, State}, http::StatusCode,
            response::{IntoResponse, Response}, routing::get, Router};
 use tokio::net::TcpListener;
+use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 use crate::channel::ChannelRegistry;
@@ -13,6 +15,8 @@ use crate::error::{AudioServerError, Result};
 use crate::presence::PresenceBroadcaster;
 use crate::session::SessionRegistry;
 use crate::ws_session::handle_ws_connection;
+use crate::admin_routes::admin_router;
+use crate::file_mixer_routes::file_mixer_router;
 
 pub type ReadyProbe = Arc<dyn Fn() -> futures_util::future::BoxFuture<'static, std::result::Result<(), String>> + Send + Sync>;
 
@@ -41,6 +45,11 @@ pub fn build_router(state: WsServerState) -> Router {
         .route("/ws", get(ws_upgrade))
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
+        .merge(admin_router())
+        .merge(file_mixer_router())
+        .nest_service("/client", ServeDir::new("./client"))
+        .nest_service("/mixed", ServeDir::new("./mixed"))
+        .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

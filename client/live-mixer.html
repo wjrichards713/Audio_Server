@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Live Mixer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+  h1 { font-size: 1.4em; color: #a0c4ff; margin-bottom: 8px; }
+  #status { font-size: 0.82em; color: #aaa; margin-bottom: 16px; min-height: 16px; }
+  .channel-block { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+  .channel-title { font-size: 0.88em; color: #a0c4ff; margin-bottom: 10px; }
+  .members { display: flex; flex-wrap: wrap; gap: 10px; }
+  .member {
+    background: #0d1b2a; border: 1px solid #1a3a5a; border-radius: 6px;
+    padding: 10px; width: 180px;
+  }
+  .member-name { font-size: 0.82em; color: #ccc; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .member label { font-size: 0.72em; color: #888; }
+  .member input[type=range] { width: 100%; accent-color: #a0c4ff; }
+  .member .vol-val { font-size: 0.72em; color: #ccc; text-align: right; }
+  .member button { font-size: 0.7em; padding: 2px 8px; border-radius: 4px; border: none; cursor: pointer; background: #0f3460; color: #ccc; margin-top: 4px; width: 100%; }
+  .member button.muted { background: #b00020; color: #fff; }
+  #empty { color: #666; font-size: 0.85em; }
+</style>
+</head>
+<body>
+<h1>Live Mixer</h1>
+<div id="status">Polling...</div>
+<div id="channels"><div id="empty">No active channels.</div></div>
+
+<script>
+const BASE = '';
+let pendingUpdates = {};
+
+async function fetchChannels() {
+  try {
+    const res = await fetch(`${BASE}/api/admin/channels`);
+    if (!res.ok) { document.getElementById('status').textContent = 'API error ' + res.status; return; }
+    const data = await res.json();
+    renderChannels(data);
+    const total = data.reduce((s, c) => s + c.members.length, 0);
+    document.getElementById('status').textContent =
+      `${data.length} channel(s), ${total} member(s) — last updated ${new Date().toLocaleTimeString()}`;
+  } catch (e) {
+    document.getElementById('status').textContent = 'Fetch error: ' + e.message;
+  }
+}
+
+function renderChannels(channels) {
+  const el = document.getElementById('channels');
+  if (!channels.length) { el.innerHTML = '<div id="empty">No active channels.</div>'; return; }
+  // Rebuild only channels/members not currently being edited
+  channels.forEach(ch => {
+    let block = document.getElementById('ch-' + ch.channel_id);
+    if (!block) {
+      block = document.createElement('div');
+      block.className = 'channel-block';
+      block.id = 'ch-' + ch.channel_id;
+      block.innerHTML = `<div class="channel-title">Channel ${ch.channel_id} (${ch.member_count} members)</div><div class="members"></div>`;
+      el.appendChild(block);
+    } else {
+      block.querySelector('.channel-title').textContent = `Channel ${ch.channel_id} (${ch.member_count} members)`;
+    }
+    const membersEl = block.querySelector('.members');
+    // Remove stale members
+    const currentIds = new Set(ch.members.map(m => m.session_id));
+    membersEl.querySelectorAll('.member').forEach(m => {
+      if (!currentIds.has(m.dataset.sessionId)) m.remove();
+    });
+    for (const m of ch.members) {
+      const key = `${m.session_id}:${ch.channel_id}`;
+      if (pendingUpdates[key]) continue; // don't overwrite while slider is being dragged
+      let card = membersEl.querySelector(`[data-session-id="${m.session_id}"]`);
+      if (!card) {
+        card = document.createElement('div');
+        card.className = 'member';
+        card.dataset.sessionId = m.session_id;
+        card.dataset.channelId = ch.channel_id;
+        card.innerHTML = `
+          <div class="member-name" title="${m.user_name}">${m.user_name}</div>
+          <label>Volume</label>
+          <input type="range" min="-60" max="12" step="0.5" value="${m.gain_db}">
+          <div class="vol-val">${m.gain_db} dB</div>
+          <button class="mute-btn${m.muted ? ' muted' : ''}">${m.muted ? 'Unmute' : 'Mute'}</button>`;
+        const slider = card.querySelector('input');
+        const valEl = card.querySelector('.vol-val');
+        const muteBtn = card.querySelector('.mute-btn');
+        slider.addEventListener('input', () => {
+          valEl.textContent = slider.value + ' dB';
+          pendingUpdates[key] = true;
+          schedulePrefsUpdate(m.session_id, ch.channel_id, slider, muteBtn);
+        });
+        slider.addEventListener('change', () => {
+          delete pendingUpdates[key];
+        });
+        muteBtn.addEventListener('click', () => {
+          muteBtn.classList.toggle('muted');
+          muteBtn.textContent = muteBtn.classList.contains('muted') ? 'Unmute' : 'Mute';
+          sendPrefsNow(m.session_id, ch.channel_id, parseFloat(slider.value), muteBtn.classList.contains('muted'));
+        });
+        membersEl.appendChild(card);
+      }
+    }
+  });
+  // Remove stale channel blocks
+  el.querySelectorAll('.channel-block').forEach(b => {
+    const id = parseInt(b.id.replace('ch-', ''));
+    if (!channels.find(c => c.channel_id === id)) b.remove();
+  });
+}
+
+let prefsTimers = {};
+function schedulePrefsUpdate(sessionId, channelId, slider, muteBtn) {
+  const key = `${sessionId}:${channelId}`;
+  clearTimeout(prefsTimers[key]);
+  prefsTimers[key] = setTimeout(() => {
+    sendPrefsNow(sessionId, channelId, parseFloat(slider.value), muteBtn.classList.contains('muted'));
+    delete prefsTimers[key];
+  }, 300);
+}
+
+async function sendPrefsNow(sessionId, channelId, gainDb, muted) {
+  try {
+    await fetch(`${BASE}/api/admin/sessions/${sessionId}/prefs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel_id: channelId, gain_db: gainDb, muted }),
+    });
+  } catch (e) {
+    console.error('prefs update failed', e);
+  }
+}
+
+fetchChannels();
+setInterval(fetchChannels, 2000);
+</script>
+</body>
+</html>
